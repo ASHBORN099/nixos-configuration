@@ -33,7 +33,7 @@ rm -f "$HOME/.cache/eww_launch.searchbar"
 
 
 # Configuration: How many workspaces do you want to show?
-SEQ_END=6
+SEQ_END=8
 
 print_workspaces() {
     # Get raw data

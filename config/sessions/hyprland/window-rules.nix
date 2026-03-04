@@ -75,18 +75,19 @@
       "pin, title:^(music_win)$"
 
       "size 700 620, title:^(music_win)$"
-      "move 12 10, title:^(music_win)$"
+      "move 12 70, title:^(music_win)$"
 
-      "dimaround, title:^(music_win)$"
-      "animation slide top, title:^(music_win)$"
-
-      
       # ───────── Calendar Window ─────────
       "float, title:^(calendar_win)$"
       "pin, title:^(calendar_win)$"
       
       "size 1300 750, title:^(calendar_win)$"
       "move 310 70, title:^(calendar_win)$"
-		];
+
+      "float, title:^(stewart)$"
+      "pin, title:^(stewart)$"
+      "size 800 600, title:^(stewart)$"
+      "center, title:^(stewart)$"
+	];
   };
 }

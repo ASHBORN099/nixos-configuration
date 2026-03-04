@@ -67,7 +67,7 @@ FloatingWindow {
     readonly property color green: "#a6e3a1"
     readonly property color red: "#f38ba8"
 
-    readonly property string scriptsDir: "/home/ilyamiro/.config/hypr/scripts/calendar"
+    readonly property string scriptsDir: "/home/ilyamiro/.config/hypr/scripts/quickshell/calendar"
 
     // -------------------------------------------------------------------------
     // ANIMATIONS & INTRO

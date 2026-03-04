@@ -65,8 +65,7 @@ FloatingWindow {
     readonly property color maroon: "#eba0ac"
     readonly property color peach: "#fab387"
 
-    readonly property string scriptsDir: "/etc/nixos/config/sessions/hyprland/scripts/network"
-
+    readonly property string scriptsDir: Quickshell.env.HOME + "/.config/hypr/scripts/quickshell/network"
     // -------------------------------------------------------------------------
     // VIEW MODE & CORE STATE
     // -------------------------------------------------------------------------

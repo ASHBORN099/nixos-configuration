@@ -114,7 +114,7 @@ def extract_lessons_from_group(group, date_obj):
                 processed_data.append({
                     "type": "gap",
                     "width": width,
-                    "desc": f"{gap_minutes}m Free",
+                    "desc": f"{gap_minutes}m",
                     "start": current_cursor,
                     "end": lesson['start']
                 })

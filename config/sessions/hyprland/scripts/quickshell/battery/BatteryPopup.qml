@@ -6,7 +6,6 @@ import Quickshell.Io
 
 FloatingWindow {
     id: window
-
     title: "battery-popup"
     width: 480
     height: 680
@@ -51,16 +50,22 @@ FloatingWindow {
 
     readonly property bool isCharging: batStatus === "Charging"
 
-    // 1. BATTERY RING COLORS
-    readonly property color batColor: {
+    // 1. THE CORE: BATTERY RING GRADIENTS (Strictly Battery Driven)
+    readonly property color batColorStart: {
         if (isCharging) return window.green;
-        if (batCapacity >= 70) return window.green;
+        if (batCapacity >= 70) return window.blue;
         if (batCapacity >= 30) return window.yellow;
-        if (batCapacity >= 15) return window.peach;
         return window.red;
     }
 
-    // 2. WINDOW AURA COLORS (Matches Power Profile)
+    readonly property color batColorEnd: {
+        if (isCharging) return window.teal;
+        if (batCapacity >= 70) return window.sapphire;
+        if (batCapacity >= 30) return window.peach;
+        return window.maroon;
+    }
+
+    // 2. THE SLIDER: POWER PROFILE GRADIENTS (Strictly Profile Driven)
     readonly property color profileStart: {
         if (powerProfile === "performance") return window.red;
         if (powerProfile === "power-saver") return window.green;
@@ -73,8 +78,17 @@ FloatingWindow {
         return window.sapphire;
     }
 
-    readonly property color activeColor: profileStart
-    readonly property color activeGradientSecondary: profileEnd
+    // 3. DUAL-TONE AMBIENT MAP
+    // The main ambient color is ALWAYS the battery status.
+    readonly property color ambientPrimary: window.batColorStart
+    
+    // The secondary ambient color injects the power profile into the environment.
+    // If on "balanced", it defaults to the battery color for a unified look.
+    readonly property color ambientSecondary: {
+        if (powerProfile === "performance") return window.profileEnd;
+        if (powerProfile === "power-saver") return window.profileEnd;
+        return window.batColorEnd; 
+    }
 
     property real animCapacity: 0
     Behavior on animCapacity {
@@ -82,7 +96,7 @@ FloatingWindow {
     }
     
     onAnimCapacityChanged: batCanvas.requestPaint()
-    onBatColorChanged: batCanvas.requestPaint()
+    onBatColorStartChanged: batCanvas.requestPaint()
 
     Process {
         id: sysPoller
@@ -140,13 +154,13 @@ FloatingWindow {
             border.width: 1
             clip: true
 
-            // Rotating Background Blobs
+            // Rotating Background Blobs (Dual-Tone Integration)
             Rectangle {
                 width: parent.width * 0.8; height: width; radius: width / 2
                 x: (parent.width / 2 - width / 2) + Math.cos(window.globalOrbitAngle * 2) * 150
                 y: (parent.height / 2 - height / 2) + Math.sin(window.globalOrbitAngle * 2) * 100
                 opacity: 0.08
-                color: window.activeColor
+                color: window.ambientPrimary
                 Behavior on color { ColorAnimation { duration: 1000 } }
             }
             
@@ -155,11 +169,11 @@ FloatingWindow {
                 x: (parent.width / 2 - width / 2) + Math.sin(window.globalOrbitAngle * 1.5) * -150
                 y: (parent.height / 2 - height / 2) + Math.cos(window.globalOrbitAngle * 1.5) * -100
                 opacity: 0.06
-                color: window.activeGradientSecondary
+                color: window.ambientSecondary
                 Behavior on color { ColorAnimation { duration: 1000 } }
             }
 
-            // Radar Rings
+            // Radar Rings (Maps to the secondary ambient/profile state)
             Item {
                 id: radarItem
                 anchors.fill: parent
@@ -173,7 +187,7 @@ FloatingWindow {
                         height: width
                         radius: width / 2
                         color: "transparent"
-                        border.color: window.activeColor
+                        border.color: window.ambientSecondary
                         border.width: 1
                         Behavior on border.color { ColorAnimation { duration: 1000 } }
                         opacity: 0.06 - (index * 0.02)
@@ -192,20 +206,19 @@ FloatingWindow {
                 
                 transform: Translate { y: -15 * (1.0 - introState) }
                 opacity: introState
-
-                // Hours Box
+                
+                // Hours Box (Maps to Battery State)
                 Rectangle {
                     width: 44; height: 48; radius: 12
                     color: "#0dffffff"; border.color: "#1affffff"; border.width: 1
                     
-                    Rectangle { anchors.fill: parent; radius: 12; color: window.activeColor; opacity: 0.05; Behavior on color { ColorAnimation { duration: 1000 } } }
-
+                    Rectangle { anchors.fill: parent; radius: 12; color: window.ambientPrimary; opacity: 0.05; Behavior on color { ColorAnimation { duration: 1000 } } }
                     Column {
                         anchors.centerIn: parent
                         Text { 
                             text: window.upHours.toString().padStart(2, '0')
                             font.pixelSize: 18; font.family: "JetBrains Mono"; font.weight: Font.Black
-                            color: window.activeColor
+                            color: window.ambientPrimary
                             Behavior on color { ColorAnimation { duration: 1000 } }
                             anchors.horizontalCenter: parent.horizontalCenter 
                         }
@@ -221,7 +234,7 @@ FloatingWindow {
                     anchors.verticalCenter: parent.verticalCenter
                     text: ":"
                     font.pixelSize: 22; font.family: "JetBrains Mono"; font.weight: Font.Black
-                    color: window.activeColor
+                    color: window.ambientPrimary
                     Behavior on color { ColorAnimation { duration: 1000 } }
                     
                     opacity: uptimePulse
@@ -233,19 +246,18 @@ FloatingWindow {
                     }
                 }
 
-                // Mins Box
+                // Mins Box (Maps to Profile State)
                 Rectangle {
                     width: 44; height: 48; radius: 12
                     color: "#0dffffff"; border.color: "#1affffff"; border.width: 1
                     
-                    Rectangle { anchors.fill: parent; radius: 12; color: window.activeGradientSecondary; opacity: 0.05; Behavior on color { ColorAnimation { duration: 1000 } } }
-
+                    Rectangle { anchors.fill: parent; radius: 12; color: window.ambientSecondary; opacity: 0.05; Behavior on color { ColorAnimation { duration: 1000 } } }
                     Column {
                         anchors.centerIn: parent
                         Text { 
                             text: window.upMins.toString().padStart(2, '0')
                             font.pixelSize: 18; font.family: "JetBrains Mono"; font.weight: Font.Black
-                            color: window.activeGradientSecondary
+                            color: window.ambientSecondary
                             Behavior on color { ColorAnimation { duration: 1000 } }
                             anchors.horizontalCenter: parent.horizontalCenter 
                         }
@@ -281,7 +293,7 @@ FloatingWindow {
             }
 
             // ==========================================
-            // CENTRAL CORE & BATTERY RING (OPTIMIZED)
+            // CENTRAL CORE & BATTERY RING (REFINED)
             // ==========================================
             Item {
                 anchors.fill: parent
@@ -294,10 +306,24 @@ FloatingWindow {
                     anchors.centerIn: parent
                     anchors.verticalCenterOffset: -30
                     radius: width / 2
-
-                    // Elegant, non-bouncy swell on hover
-                    scale: heroMa.containsMouse ? 1.04 : 1.0
-                    Behavior on scale { NumberAnimation { duration: 500; easing.type: Easing.OutQuint } }
+                    
+                    property bool isDangerState: !window.isCharging && window.batCapacity < 15
+                    
+                    // Cinematic Breathing Animation
+                    SequentialAnimation on scale {
+                        loops: Animation.Infinite
+                        running: true
+                        NumberAnimation { 
+                            to: heroMa.containsMouse ? 1.05 : (centralCore.isDangerState ? 1.04 : 1.01)
+                            duration: heroMa.containsMouse ? 1200 : (centralCore.isDangerState ? 600 : 2500)
+                            easing.type: Easing.InOutSine 
+                        }
+                        NumberAnimation { 
+                            to: 1.0
+                            duration: heroMa.containsMouse ? 1200 : (centralCore.isDangerState ? 600 : 2500)
+                            easing.type: Easing.InOutSine 
+                        }
+                    }
 
                     gradient: Gradient {
                         orientation: Gradient.Vertical
@@ -305,9 +331,23 @@ FloatingWindow {
                         GradientStop { position: 1.0; color: window.base }
                     }
 
-                    border.color: window.activeColor
+                    border.color: centralCore.isDangerState ? window.red : window.ambientPrimary
                     border.width: 1
                     Behavior on border.color { ColorAnimation { duration: 1000 } }
+
+                    // Subtle Danger Glow
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: width / 2
+                        color: window.maroon
+                        opacity: centralCore.isDangerState ? 0.15 : 0.0
+                        Behavior on opacity { NumberAnimation { duration: 1000 } }
+                        SequentialAnimation on opacity {
+                            loops: Animation.Infinite; running: centralCore.isDangerState
+                            NumberAnimation { to: 0.25; duration: 600; easing.type: Easing.InOutSine }
+                            NumberAnimation { to: 0.15; duration: 600; easing.type: Easing.InOutSine }
+                        }
+                    }
 
                     // Soft rotating liquid glow inside the orb
                     Rectangle {
@@ -323,12 +363,12 @@ FloatingWindow {
                         
                         gradient: Gradient {
                             orientation: Gradient.Horizontal
-                            GradientStop { position: 0.0; color: window.batColor; Behavior on color { ColorAnimation { duration: 800 } } }
+                            GradientStop { position: 0.0; color: window.batColorStart; Behavior on color { ColorAnimation { duration: 800 } } }
                             GradientStop { position: 1.0; color: "transparent" }
                         }
                     }
 
-                    // Battery Canvas Layer (Removed shadowBlur and gradients for maximum FPS)
+                    // Battery Canvas Layer (Strictly Battery Colored)
                     Item {
                         anchors.fill: parent
                         
@@ -338,7 +378,7 @@ FloatingWindow {
                             NumberAnimation { from: 0.0; to: 1.0; duration: 1200; easing.type: Easing.InOutSine }
                             NumberAnimation { from: 1.0; to: 0.0; duration: 1200; easing.type: Easing.InOutSine }
                         }
-
+                        
                         property real pumpPhase: 0.0
                         NumberAnimation on pumpPhase {
                             running: heroMa.containsMouse && window.isCharging
@@ -359,7 +399,7 @@ FloatingWindow {
                         
                         onPumpPhaseChanged: { if(heroMa.containsMouse && window.isCharging) batCanvas.requestPaint() }
                         onDischargePhaseChanged: { if(heroMa.containsMouse && !window.isCharging) batCanvas.requestPaint() }
-
+                        
                         Canvas {
                             id: batCanvas
                             anchors.fill: parent
@@ -372,7 +412,7 @@ FloatingWindow {
                                 var centerX = width / 2;
                                 var centerY = height / 2;
                                 var radius = (width / 2) - 18; 
-                                var baseColorStr = window.batColor.toString();
+                                var endAngle = (window.animCapacity / 100) * 2 * Math.PI;
                                 
                                 ctx.lineCap = "round";
                                 
@@ -383,58 +423,69 @@ FloatingWindow {
                                 ctx.strokeStyle = "#0dffffff";
                                 ctx.stroke();
                                 
-                                var endAngle = (window.animCapacity / 100) * 2 * Math.PI;
+                                // Gradient for the main fill
+                                var fillGrad = ctx.createLinearGradient(0, height, width, 0);
+                                fillGrad.addColorStop(0, window.batColorStart.toString());
+                                fillGrad.addColorStop(1, window.batColorEnd.toString());
 
                                 ctx.globalAlpha = 1.0;
                                 ctx.lineWidth = 14;
-
                                 ctx.beginPath();
                                 ctx.arc(centerX, centerY, radius, 0, endAngle);
-                                ctx.strokeStyle = baseColorStr;
+                                ctx.strokeStyle = fillGrad;
                                 ctx.stroke();
-
+                                
                                 if (heroMa.containsMouse && endAngle > 0.1) {
                                     if (window.isCharging) {
-                                        var surgeCenter = parent.pumpPhase * endAngle;
-                                        for (var i = 0; i < 4; i++) {
-                                            var spread = 0.3 + (i * 0.2); 
-                                            var startA = Math.max(0, surgeCenter - spread);
-                                            var endA = Math.min(endAngle, surgeCenter + spread);
+                                        // Smooth, liquid upward surge overlay
+                                        var surgeAngle = parent.pumpPhase * (endAngle + 0.6) - 0.3;
+                                        
+                                        if (surgeAngle > 0 && surgeAngle < endAngle) {
+                                            var sStart = Math.max(0, surgeAngle - 0.4);
+                                            var sEnd = Math.min(endAngle, surgeAngle + 0.4);
                                             
-                                            if (startA < endA) {
-                                                ctx.beginPath();
-                                                ctx.arc(centerX, centerY, radius, startA, endA);
-                                                ctx.lineWidth = 14 + (4 - i) * 2; 
-                                                ctx.strokeStyle = baseColorStr;
-                                                ctx.globalAlpha = 0.2 * Math.sin(parent.pumpPhase * Math.PI);
-                                                ctx.stroke();
-                                            }
+                                            ctx.beginPath();
+                                            ctx.arc(centerX, centerY, radius, sStart, sEnd);
+                                            ctx.lineWidth = 22;
+                                            ctx.strokeStyle = window.batColorStart.toString();
+                                            ctx.globalAlpha = 0.5 * Math.sin(parent.pumpPhase * Math.PI);
+                                            ctx.stroke();
+
+                                            sStart = Math.max(0, surgeAngle - 0.2);
+                                            sEnd = Math.min(endAngle, surgeAngle + 0.2);
+                                            ctx.beginPath();
+                                            ctx.arc(centerX, centerY, radius, sStart, sEnd);
+                                            ctx.lineWidth = 28;
+                                            ctx.strokeStyle = window.batColorEnd.toString();
+                                            ctx.globalAlpha = 0.8 * Math.sin(parent.pumpPhase * Math.PI);
+                                            ctx.stroke();
                                         }
                                         
+                                        // Glowing flare at the tip
                                         if (parent.pumpPhase > 0.7) {
                                             var flarePhase = (parent.pumpPhase - 0.7) / 0.3;
-                                            ctx.beginPath();
                                             var hitX = centerX + Math.cos(endAngle) * radius;
                                             var hitY = centerY + Math.sin(endAngle) * radius;
-                                            
-                                            ctx.arc(hitX, hitY, 7 + (flarePhase * 12), 0, 2*Math.PI);
-                                            ctx.fillStyle = baseColorStr;
-                                            ctx.globalAlpha = (1.0 - flarePhase) * 0.5; 
+                                            ctx.beginPath();
+                                            ctx.arc(hitX, hitY, 7 + (flarePhase * 15), 0, 2*Math.PI);
+                                            ctx.fillStyle = window.batColorEnd.toString();
+                                            ctx.globalAlpha = (1.0 - flarePhase) * 0.6;
                                             ctx.fill();
                                         }
                                     } else {
+                                        // Smooth discharge ripples
                                         var drainCenter = parent.dischargePhase * endAngle;
-                                        for (var d = 0; d < 3; d++) {
-                                            var dSpread = 0.25 + (d * 0.2);
+                                        for (var d = 0; d < 2; d++) {
+                                            var dSpread = 0.2 + (d * 0.15);
                                             var dStart = Math.max(0, drainCenter - dSpread);
                                             var dEnd = Math.min(endAngle, drainCenter + dSpread);
                                             
                                             if (dStart < dEnd) {
                                                 ctx.beginPath();
                                                 ctx.arc(centerX, centerY, radius, dStart, dEnd);
-                                                ctx.lineWidth = 14 + (2 - d) * 1.5;
-                                                ctx.strokeStyle = Qt.lighter(window.batColor, 1.2).toString();
-                                                ctx.globalAlpha = 0.3 * Math.sin(parent.dischargePhase * Math.PI);
+                                                ctx.lineWidth = 14 + (1 - d) * 2;
+                                                ctx.strokeStyle = window.batColorEnd.toString();
+                                                ctx.globalAlpha = 0.2 * Math.sin(parent.dischargePhase * Math.PI);
                                                 ctx.stroke();
                                             }
                                         }
@@ -455,7 +506,7 @@ FloatingWindow {
                                 Text {
                                     font.family: "Iosevka Nerd Font"
                                     font.pixelSize: 32
-                                    color: window.batColor
+                                    color: window.batColorStart
                                     text: window.isCharging ? "󰂄" : (window.batCapacity > 20 ? "󰁹" : "󰂃")
                                     Behavior on color { ColorAnimation { duration: 400 } }
                                 }
@@ -477,7 +528,7 @@ FloatingWindow {
                                 
                                 color: window.isCharging 
                                         ? Qt.tint(window.green, Qt.rgba(1, 1, 1, parent.textPulse * 0.4)) 
-                                        : window.subtext0
+                                        : (centralCore.isDangerState ? Qt.tint(window.red, Qt.rgba(1, 1, 1, parent.textPulse * 0.3)) : window.subtext0)
                                         
                                 text: window.batStatus.toUpperCase()
                                 Behavior on color { ColorAnimation { duration: 300 } }
@@ -505,7 +556,6 @@ FloatingWindow {
                 anchors.right: parent.right
                 anchors.margins: 25
                 spacing: 15
-
                 transform: Translate { y: 20 * (1.0 - introState) }
                 opacity: introState
 
@@ -514,7 +564,7 @@ FloatingWindow {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 75
                     spacing: 12
-
+                    
                     Repeater {
                         model: ListModel {
                             ListElement { lbl: "Lock"; cmd: "hyprlock"; icon: ""; c1: "#cba6f7"; c2: "#f5c2e7" }
@@ -533,15 +583,15 @@ FloatingWindow {
                             border.width: actionMa.containsMouse ? 2 : 1
                             Behavior on color { ColorAnimation { duration: 200 } }
                             Behavior on border.color { ColorAnimation { duration: 200 } }
-
-                            // Actionable but not bouncy
-                            scale: actionMa.pressed ? 0.96 : (actionMa.containsMouse ? 1.03 : 1.0)
-                            Behavior on scale { NumberAnimation { duration: 300; easing.type: Easing.OutQuint } }
+                            
+                            // Bouncy Hover scaling
+                            scale: actionMa.pressed ? 0.96 : (actionMa.containsMouse ? 1.08 : 1.0)
+                            Behavior on scale { NumberAnimation { duration: 300; easing.type: Easing.OutBack } }
 
                             property real fillLevel: 0.0
                             property bool triggered: false
                             property real flashOpacity: 0.0
-
+                            
                             // Wave Fill (Vertical)
                             Canvas {
                                 id: waveCanvas
@@ -553,18 +603,16 @@ FloatingWindow {
                                     loops: Animation.Infinite
                                     from: 0; to: Math.PI * 2; duration: 800
                                 }
-
                                 onWavePhaseChanged: requestPaint()
                                 Connections { target: actionCapsule; function onFillLevelChanged() { waveCanvas.requestPaint() } }
-
+                                
                                 onPaint: {
                                     var ctx = getContext("2d");
                                     ctx.clearRect(0, 0, width, height);
                                     if (actionCapsule.fillLevel <= 0.001) return;
-
+                                    
                                     var r = 18; 
                                     var fillY = height * (1.0 - actionCapsule.fillLevel);
-
                                     ctx.save();
                                     ctx.beginPath();
                                     ctx.moveTo(r, 0);
@@ -578,7 +626,7 @@ FloatingWindow {
                                     ctx.arcTo(0, 0, r, 0, r);
                                     ctx.closePath();
                                     ctx.clip(); 
-
+                                    
                                     ctx.beginPath();
                                     ctx.moveTo(0, fillY);
                                     if (actionCapsule.fillLevel < 0.99) {
@@ -594,7 +642,7 @@ FloatingWindow {
                                         ctx.lineTo(0, height);
                                     }
                                     ctx.closePath();
-
+                                    
                                     var grad = ctx.createLinearGradient(0, 0, 0, height);
                                     grad.addColorStop(0, c1);
                                     grad.addColorStop(1, c2);
@@ -668,7 +716,7 @@ FloatingWindow {
                             
                             NumberAnimation {
                                 id: drainAnim; target: actionCapsule; property: "fillLevel"; to: 0.0
-                                duration: 1000 * actionCapsule.fillLevel; easing.type: Easing.OutQuad
+                                duration: 1500 * actionCapsule.fillLevel; easing.type: Easing.OutQuad
                             }
 
                             Timer {
@@ -687,7 +735,7 @@ FloatingWindow {
                     color: "#0dffffff" 
                     border.color: "#1affffff"
                     border.width: 1
-
+                    
                     Rectangle {
                         id: sliderPill
                         width: (parent.width - 2) / 3 
@@ -699,8 +747,10 @@ FloatingWindow {
                             if (window.powerProfile === "balanced") return width + 1;
                             return (width * 2) + 1;
                         }
-                        Behavior on x { NumberAnimation { duration: 400; easing.type: Easing.OutQuint } }
-
+                        
+                        // Elegant overshoot bounce
+                        Behavior on x { NumberAnimation { duration: 400; easing.type: Easing.OutBack; easing.overshoot: 1.2 } }
+                        
                         gradient: Gradient {
                             orientation: Gradient.Horizontal
                             GradientStop { position: 0.0; color: window.profileStart; Behavior on color { ColorAnimation{duration:400} } }
@@ -711,17 +761,18 @@ FloatingWindow {
                     RowLayout {
                         anchors.fill: parent
                         spacing: 0
-
+                        
                         Repeater {
                             model: ListModel {
                                 ListElement { name: "performance"; icon: "󰓅"; label: "Perform" } 
                                 ListElement { name: "balanced"; icon: "󰗑"; label: "Balance" }   
                                 ListElement { name: "power-saver"; icon: "󰌪"; label: "Saver" } 
                             }
+                            
                             delegate: Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
-
+                                
                                 RowLayout {
                                     anchors.centerIn: parent
                                     spacing: 8
@@ -738,7 +789,7 @@ FloatingWindow {
                                         Behavior on color { ColorAnimation { duration: 200 } }
                                     }
                                 }
-
+                                
                                 MouseArea {
                                     id: profileMa
                                     anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor

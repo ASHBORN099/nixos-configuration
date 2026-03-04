@@ -67,7 +67,7 @@
              :space-evenly "false" :vexpand "false" :hexpand "false"
             
             (for ws in WORKSPACES
-                (button :onclick "bash ~/.config/hypr/scripts/close_eww.sh ${ws.id}"
+                (button :onclick "bash ~/.config/hypr/scripts/quickshell/close_eww.sh ${ws.id}"
                         ;; Class is now dynamic: workspace-btn active/occupied/empty
                         :class "workspace-btn ${ws.state}"
                         ;; Tooltip shows the window name!
@@ -179,7 +179,7 @@
          )
 
          ;; 2. WiFi
-         (eventbox :onclick "bash ~/.config/hypr/scripts/network/launch_network.sh"
+         (eventbox :onclick "bash ~/.config/hypr/scripts/qs_manager.sh toggle network"
                    :onrightclick "nm-connection-editor &"
                    :cursor "pointer"
                    :tooltip {WIFI_STATUS == "enabled" ? (WIFI_SSID != "" ? "Connected to ${WIFI_SSID}" : "WiFi enabled") : "WiFi disabled"}
@@ -199,7 +199,7 @@
               :space-evenly false
               
               ;; PART A: The Icon (Always Visible)
-              (eventbox :onclick "bash ~/.config/hypr/scripts/network/launch_network.sh"
+              (eventbox :onclick "bash ~/.config/hypr/scripts/qs_manager.sh toggle network"
                         :onrightclick "blueman-manager &"
                         :cursor "pointer"
                         :tooltip {BLUETOOTH_DATA.power == "on" ? "Bluetooth On" : "Bluetooth Off"}
@@ -219,7 +219,7 @@
                       (box :width 10)
 
                       ;; Device Name
-                      (eventbox :onclick "bash ~/.config/hypr/scripts/network/launch_network.sh"
+                      (eventbox :onclick "bash ~/.config/hypr/scripts/quickshell/network/launch_network.sh"
                                 :onrightclick "blueman-manager &"
                                 :cursor "pointer"
                           (label :class "sys-text" 
@@ -251,7 +251,7 @@
          )
 
         ;; 5. Battery 
-         (eventbox :onclick "bash ~/.config/hypr/scripts/battery/launch_battery.sh"
+         (eventbox :onclick "bash ~/.config/hypr/scripts/qs_manager.sh toggle battery"
                    :cursor "pointer"
              (box :class "sys-pill sys-bat" :orientation "h" :spacing 10 :space-evenly false
                   :tooltip "${BATTERY_STATUS}: ${BATTERY_PERCENT}%"
@@ -418,7 +418,7 @@
          :halign "center" 
          :space-evenly "false"
 
-        (eventbox :onclick "bash ./scripts/open_eww.sh music_win"
+        (eventbox :onclick "bash ~/.config/hypr/scripts/quickshell/music/toggle_music.sh"
             (box :orientation "h" :spacing 10 :space-evenly "false"
                 ;; Art
                 (box :class "album_art" 
@@ -458,7 +458,7 @@
     )
 )
 (defwidget weather [] 
-    (eventbox :onclick "bash ~/.config/hypr/scripts/calendar/launch_calendar.sh"
+    (eventbox :onclick "bash ~/.config/hypr/scripts/qs_manager.sh toggle calendar"
         (box :class "dockbox"
             (box :class "clockbox" :orientation "v" :spacing 0 :valign "center" 
                  :halign "start" :space-evenly "false" :vexpand "false" :hexpand "false"
