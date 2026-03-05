@@ -5,20 +5,13 @@ import QtCore
 import Quickshell
 import Quickshell.Io
 
-FloatingWindow {
+Item {
     id: window
-
-    title: "calendar_win"
-    
-    implicitWidth: 1300
-    implicitHeight: 750
-    color: "transparent"
 
     // -------------------------------------------------------------------------
     // KEYBOARD SHORTCUTS
+    // (Escape is handled by Main.qml now)
     // -------------------------------------------------------------------------
-    Shortcut { sequence: "Escape"; onActivated: Qt.quit() }
-
     Shortcut { 
         sequence: "Left"
         onActivated: {
@@ -67,7 +60,7 @@ FloatingWindow {
     readonly property color green: "#a6e3a1"
     readonly property color red: "#f38ba8"
 
-    readonly property string scriptsDir: "/home/ilyamiro/.config/hypr/scripts/quickshell/calendar"
+    readonly property string scriptsDir: Quickshell.env("HOME") + "/.config/hypr/scripts/quickshell/calendar"
 
     // -------------------------------------------------------------------------
     // TIME OF DAY DYNAMIC COLORS
@@ -131,7 +124,6 @@ FloatingWindow {
     property int weatherView: 0
     property color activeWeatherHex: weatherData && weatherData.forecast && weatherData.forecast[weatherView] ? weatherData.forecast[weatherView].hex : window.mauve
 
-    // Finds the index of the hour closest to right now (Used for TODAY's view only)
     property int activeHourIndex: {
         if (window.weatherView !== 0 || !window.weatherData || !window.weatherData.forecast || !window.weatherData.forecast[0] || !window.weatherData.forecast[0].hourly) return -1;
         
@@ -262,7 +254,7 @@ FloatingWindow {
             clip: true
 
             // =======================================================
-            // AMBIENT WIDGET COLOR BLOBS (Time & Weather Driven)
+            // AMBIENT WIDGET COLOR BLOBS
             // =======================================================
             Item {
                 anchors.fill: parent
@@ -302,8 +294,6 @@ FloatingWindow {
             // =======================================================
             // LIMITLESS AMBIENT WEATHER BACKGROUND & ORBITS
             // =======================================================
-            
-            // Subtle rotating background rings mimicking the network dashboard
             Repeater {
                 model: 2
                 Rectangle {
@@ -336,7 +326,6 @@ FloatingWindow {
                 }
             }
 
-            // Giant Breathing Weather Icon
             Text {
                 anchors.centerIn: parent
                 anchors.verticalCenterOffset: -100
@@ -374,11 +363,10 @@ FloatingWindow {
                 }
                 transform: Translate { y: parent.levitation }
 
-                // The Explicit Dotted Orbit Path Line
                 Canvas {
                     z: -10
-                    x: -320 // matches rx
-                    y: -140 // matches ry
+                    x: -320
+                    y: -140
                     width: 640
                     height: 280
                     opacity: 0.25
@@ -386,7 +374,6 @@ FloatingWindow {
                         var ctx = getContext("2d");
                         ctx.clearRect(0, 0, width, height);
                         ctx.beginPath();
-                        // Tracing exactly the same 320x140 elliptical path used by the pills
                         for (var i = 0; i <= Math.PI * 2; i += 0.05) {
                             var xx = width/2 + Math.cos(i) * 320;
                             var yy = height/2 + Math.sin(i) * 140;
@@ -443,9 +430,7 @@ FloatingWindow {
                     }
                 }
 
-                // -------------------------------------------------------
                 // TRUE 3D ORBITAL HOURLY FORECAST
-                // -------------------------------------------------------
                 Repeater {
                     id: hourRepeater
                     model: window.weatherData && window.weatherData.forecast[window.weatherView] && window.weatherData.forecast[window.weatherView].hourly ? window.weatherData.forecast[window.weatherView].hourly.slice(0, 8) : []
@@ -455,16 +440,13 @@ FloatingWindow {
                         property bool isToday: window.weatherView === 0
                         property bool isHighlighted: isToday && index === window.activeHourIndex
                         
-                        property real rx: 320 // Ellipse Width radius
-                        property real ry: 140 // Ellipse Height radius
+                        property real rx: 320
+                        property real ry: 140
                         
-                        // Relative index places the currently active hour at '0' chronologically
                         property int relIdx: isToday ? (index - window.activeHourIndex) : index
                         
-   
                         property real targetAngleDeg: isToday ? (65 + (relIdx * 30)) : (index * (360 / Math.max(1, mCount)))
                         
-                        // Future days continuously revolve! Today just breathes.
                         property real orbitOffset: isToday ? 0 : (window.globalOrbitAngle * (180 / Math.PI) * -1.5)
                         property real osc: isToday ? (Math.sin(window.globalOrbitAngle * 10 + index) * 5) : 0 
                         
@@ -474,7 +456,6 @@ FloatingWindow {
                         y: Math.sin(rad) * ry - height/2
                         z: Math.sin(rad) * 100 
                         
-                        // Scale gracefully. Highlighted jumps out, others blend backwards evenly.
                         scale: isHighlighted ? 1.4 : (isToday ? (0.95 + 0.20 * Math.sin(rad)) : (0.90 + 0.25 * Math.sin(rad)))
                         opacity: isHighlighted ? 1.0 : (isToday ? (0.35 + 0.45 * ((Math.sin(rad) + 1) / 2)) : (0.4 + 0.6 * ((Math.sin(rad) + 1) / 2)))
 
@@ -538,7 +519,6 @@ FloatingWindow {
                 border.width: 1
                 z: 10 
 
-                // Detects mouse globally over the calendar for shortcuts
                 HoverHandler { id: calHover }
 
                 ColumnLayout {
@@ -661,7 +641,6 @@ FloatingWindow {
                     anchors.fill: parent
                     spacing: 20
 
-                    // Cinematic Breathing Nav Header
                     RowLayout {
                         Layout.alignment: Qt.AlignRight | Qt.AlignTop
                         spacing: 20
@@ -713,7 +692,6 @@ FloatingWindow {
                         }
                     }
 
-                    // Centered Fluid Typographic Tower
                     ColumnLayout {
                         Layout.alignment: Qt.AlignRight 
                         spacing: -5
@@ -729,7 +707,7 @@ FloatingWindow {
                         }
                         
                         Text {
-                            Layout.alignment: Qt.AlignHCenter // Centered perfectly under the temp
+                            Layout.alignment: Qt.AlignHCenter
                             text: window.weatherData && window.weatherData.forecast[window.weatherView] ? window.weatherData.forecast[window.weatherView].desc : ""
                             font.family: "JetBrains Mono"
                             font.weight: Font.Bold
@@ -741,12 +719,9 @@ FloatingWindow {
 
                     Item { Layout.fillHeight: true } 
 
-                    // -------------------------------------------------------
-                    // LIQUID ARC GAUGES (Data numbers placed prominently inside)
-                    // -------------------------------------------------------
                     RowLayout {
                         Layout.fillWidth: true
-                        Layout.alignment: Qt.AlignRight // Pushed safely away from the 3D Orbit!
+                        Layout.alignment: Qt.AlignRight
                         Layout.rightMargin: 10
                         spacing: 20
 
@@ -764,7 +739,6 @@ FloatingWindow {
                                 scale: gaugeMa.containsMouse ? 1.15 : 1.0
                                 Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
                                 
-                                // Ambient Glow behind gauge on hover
                                 Rectangle {
                                     anchors.top: parent.top
                                     anchors.horizontalCenter: parent.horizontalCenter
@@ -774,7 +748,6 @@ FloatingWindow {
                                     Behavior on opacity { NumberAnimation { duration: 200 } }
                                 }
 
-                                // Circular Arc Gauge & Inner Data
                                 Item {
                                     id: circleItem
                                     width: 68; height: 68
@@ -800,14 +773,12 @@ FloatingWindow {
                                             ctx.clearRect(0, 0, width, height);
                                             var r = width / 2;
                                             
-                                            // Background track
                                             ctx.beginPath();
                                             ctx.arc(r, r, r - 4, 0, 2 * Math.PI);
                                             ctx.strokeStyle = "#1affffff";
                                             ctx.lineWidth = 3;
                                             ctx.stroke();
                                             
-                                            // Liquid gradient fill
                                             if (animProgress > 0) {
                                                 ctx.beginPath();
                                                 ctx.arc(r, r, r - 4, 0, animProgress * 2 * Math.PI);
@@ -823,7 +794,6 @@ FloatingWindow {
                                         Behavior on progress { NumberAnimation { duration: 1000; easing.type: Easing.OutExpo } }
                                     }
                                     
-                                    // Number proudly inside the circle!
                                     Text {
                                         anchors.centerIn: parent
                                         text: modelData.val
@@ -834,7 +804,6 @@ FloatingWindow {
                                     }
                                 }
                                 
-                                // Labels & Icons at the bottom
                                 RowLayout {
                                     anchors.bottom: parent.bottom
                                     anchors.horizontalCenter: parent.horizontalCenter
@@ -874,7 +843,6 @@ FloatingWindow {
                 height: 240
                 z: 20 
 
-                // Elegant ambient glow from the bottom
                 Rectangle {
                     anchors.fill: parent
                     gradient: Gradient {
@@ -885,7 +853,6 @@ FloatingWindow {
 
                 Rectangle { anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right; height: 1; color: "#1affffff" }
 
-                // Flowing multi-colored sine waves behind the schedule timeline
                 Canvas {
                     anchors.fill: parent
                     z: -1 
@@ -904,10 +871,8 @@ FloatingWindow {
                     onPaint: {
                         var ctx = getContext("2d");
                         ctx.clearRect(0, 0, width, height);
-                        
                         var cy = height / 2;
                         
-                        // Line 1 (Mauve)
                         ctx.beginPath();
                         ctx.moveTo(0, cy);
                         for(var x = 0; x <= width; x += 10) ctx.lineTo(x, cy + Math.sin(x/100 + phase1) * 30);
@@ -915,7 +880,6 @@ FloatingWindow {
                         ctx.lineWidth = 2;
                         ctx.stroke();
                         
-                        // Line 2 (Sapphire)
                         ctx.beginPath();
                         ctx.moveTo(0, cy);
                         for(var x = 0; x <= width; x += 10) ctx.lineTo(x, cy + Math.sin(x/120 - phase2) * 40);
@@ -923,7 +887,6 @@ FloatingWindow {
                         ctx.lineWidth = 2;
                         ctx.stroke();
                         
-                        // Line 3 (Peach)
                         ctx.beginPath();
                         ctx.moveTo(0, cy);
                         for(var x = 0; x <= width; x += 10) ctx.lineTo(x, cy + Math.sin(x/80 + phase3) * 20);
@@ -938,7 +901,6 @@ FloatingWindow {
                     anchors.margins: 25
                     spacing: 15
 
-                    // Header
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 15
@@ -952,7 +914,7 @@ FloatingWindow {
                             text: window.scheduleData ? window.scheduleData.header : "Loading Schedule..."
                             font.family: "JetBrains Mono"
                             font.weight: Font.Bold
-                            font.pixelSize: 12 // Reduced schedule header text size per request
+                            font.pixelSize: 12
                             color: window.overlay0
                         }
                         
@@ -978,7 +940,6 @@ FloatingWindow {
                         }
                     }
 
-                    // OPEN, FRAMELESS TIMELINE
                     Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
@@ -993,7 +954,6 @@ FloatingWindow {
                             anchors.centerIn: parent
                         }
 
-                        // The continuous background track line passing through everything
                         Rectangle {
                             anchors.verticalCenter: parent.verticalCenter
                             anchors.left: parent.left
@@ -1030,7 +990,6 @@ FloatingWindow {
                                         width: baseDataWidth * scheduleRow.scaleRatio
                                         height: parent.height
                                         
-                                        // --- 1. FRAMELESS CLASS DATA NODE ---
                                         Item {
                                             id: classNode
                                             anchors.fill: parent
@@ -1041,7 +1000,6 @@ FloatingWindow {
                                             property bool isActive: parent.isClass && window.currentEpoch >= (modelData.start || 0) && window.currentEpoch <= (modelData.end || 0)
                                             property bool isPast: parent.isClass && window.currentEpoch > (modelData.end || 0)
                                             
-                                            // Fluid Hover Wave Background
                                             Canvas {
                                                 anchors.fill: parent
                                                 visible: classMa.containsMouse || classNode.isActive
@@ -1071,7 +1029,6 @@ FloatingWindow {
                                                 }
                                             }
 
-                                            // Left-side solid indicator line
                                             Rectangle {
                                                 id: accentLine
                                                 width: classNode.isActive || classMa.containsMouse ? 4 : 2
@@ -1084,12 +1041,10 @@ FloatingWindow {
                                                 Behavior on color { ColorAnimation { duration: 200 } }
                                             }
 
-                                            // Flowing text content
                                             ColumnLayout {
                                                 anchors.left: accentLine.right
                                                 anchors.right: parent.right
                                                 anchors.verticalCenter: parent.verticalCenter
-                                                // Fluid slide on hover!
                                                 anchors.leftMargin: classMa.containsMouse ? 25 : 15
                                                 Behavior on anchors.leftMargin { NumberAnimation { duration: 300; easing.type: Easing.OutBack } }
                                                 spacing: 6
@@ -1122,12 +1077,10 @@ FloatingWindow {
                                             MouseArea { id: classMa; anchors.fill: parent; hoverEnabled: parent.visible }
                                         }
 
-                                        // --- 2. THE GAP CONNECTOR ---
                                         Item {
                                             anchors.fill: parent
                                             visible: !parent.isClass
                                             
-                                            // The gap just highlights the center line and pops up a duration pill
                                             Rectangle {
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 anchors.left: parent.left

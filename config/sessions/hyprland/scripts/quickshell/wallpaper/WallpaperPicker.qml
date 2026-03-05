@@ -1,37 +1,42 @@
 import QtQuick
 import QtQuick.Layouts
 import Qt.labs.folderlistmodel
-import QtQuick.Window
 import Quickshell
+import Quickshell.Io
 
-FloatingWindow {
+Item {
     id: window
 
     // -------------------------------------------------------------------------
-    // WINDOW CONFIG
+    // PROPERTIES & IPC RECEIVER
     // -------------------------------------------------------------------------
-    title: "wallpaper-picker"
-    width: 1920
-    height: 400
-    color: "transparent"
+    property string widgetArg: ""
+    property int targetWallIndex: 0
+    property bool initialFocusSet: false
 
-    // -------------------------------------------------------------------------
-    // PROPERTIES
-    // -------------------------------------------------------------------------
+    onWidgetArgChanged: {
+        let idx = parseInt(widgetArg);
+        if (!isNaN(idx)) {
+            targetWallIndex = idx;
+            tryFocus();
+        }
+    }
+
+    function tryFocus() {
+        if (!initialFocusSet && view.count > targetWallIndex) {
+            view.currentIndex = targetWallIndex;
+            view.positionViewAtIndex(targetWallIndex, ListView.Center);
+            initialFocusSet = true;
+        }
+    }
+
     readonly property string homeDir: "file://" + Quickshell.env("HOME")
     readonly property string thumbDir: homeDir + "/.cache/wallpaper_picker/thumbs"
     readonly property string srcDir: Quickshell.env("HOME") + "/Images/Wallpapers"
 
-    // SWWW Command Template
     readonly property string swwwCommand: "swww img '%1' --transition-type %2 --transition-pos 0.5,0.5 --transition-fps 144 --transition-duration 1"
-    
-    // MPVPAPER Command Template (OPTIMIZED)
-    // -l auto: Fixes layer issues
-    // --hwdec=auto: Forces GPU usage (Fixes lag)
-    // --no-audio: Prevents audio processing (Saves CPU)
     readonly property string mpvCommand: "pkill mpvpaper; mpvpaper -o 'loop --hwdec=auto --no-audio' '*' '%1' & sleep 0.5; " + Quickshell.env("HOME") + "/.config/eww/bar/launch_bar.sh --force-open"
     
-    // List of available swww transitions to randomize from
     readonly property var transitions: ["grow", "outer", "any", "wipe", "wave", "pixel", "center"]
 
     readonly property int itemWidth: 300
@@ -40,7 +45,10 @@ FloatingWindow {
     readonly property int spacing: 0 
     readonly property real skewFactor: -0.35
 
-    Shortcut { sequence: "Escape"; onActivated: Qt.quit() }
+    // Bulletproof explicit keyboard navigation
+    Shortcut { sequence: "Left"; onActivated: view.decrementCurrentIndex() }
+    Shortcut { sequence: "Right"; onActivated: view.incrementCurrentIndex() }
+    Shortcut { sequence: "Return"; onActivated: { if (view.currentItem) view.currentItem.pickWallpaper() } }
 
     // -------------------------------------------------------------------------
     // CONTENT
@@ -52,31 +60,15 @@ FloatingWindow {
         
         spacing: window.spacing
         orientation: ListView.Horizontal
-        
         clip: false 
 
         highlightRangeMode: ListView.StrictlyEnforceRange
         preferredHighlightBegin: (width / 2) - (window.itemWidth / 2)
         preferredHighlightEnd: (width / 2) + (window.itemWidth / 2)
-        
-        // --- SPEED SETTINGS ---
         highlightMoveDuration: 300
 
         focus: true
-
-        // --- NEW: Snap to active wallpaper on load ---
-        property bool initialFocusSet: false
-        onCountChanged: {
-            if (!initialFocusSet && count > 0) {
-                var idx = parseInt(Quickshell.env("WALLPAPER_INDEX") || "0")
-                // Only jump if the index exists in the current count
-                if (count > idx) {
-                    currentIndex = idx
-                    positionViewAtIndex(idx, ListView.Center)
-                    initialFocusSet = true
-                }
-            }
-        }
+        onCountChanged: window.tryFocus()
 
         model: FolderListModel {
             id: folderModel
@@ -84,10 +76,6 @@ FloatingWindow {
             nameFilters: ["*.jpg", "*.jpeg", "*.png", "*.webp", "*.gif", "*.mp4", "*.mkv", "*.mov", "*.webm"]
             showDirs: false
             sortField: FolderListModel.Name 
-        }
-
-        Keys.onReturnPressed: {
-            if (currentItem) currentItem.pickWallpaper()
         }
 
         delegate: Item {
@@ -118,7 +106,7 @@ FloatingWindow {
                      Quickshell.execDetached(["bash", "-c", "pkill mpvpaper; " + finalCmd])
                 }
                 
-                Qt.quit()
+                Quickshell.execDetached(["bash", "-c", "echo 'close' > /tmp/qs_widget_state"])
             }
 
             MouseArea {
@@ -129,7 +117,6 @@ FloatingWindow {
                 }
             }
 
-            // PARALLELOGRAM CONTAINER
             Item {
                 anchors.centerIn: parent
                 width: parent.width
@@ -146,7 +133,6 @@ FloatingWindow {
                     matrix: Qt.matrix4x4(1, s, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
                 }
 
-                // 1. DYNAMIC BORDER (Background Layer)
                 Image {
                     anchors.fill: parent
                     source: fileUrl
@@ -155,7 +141,6 @@ FloatingWindow {
                     visible: true 
                 }
 
-                // 2. THE IMAGE (Inset Layer)
                 Item {
                     anchors.fill: parent
                     anchors.margins: window.borderWidth 
@@ -179,7 +164,6 @@ FloatingWindow {
                         }
                     }
                     
-                    // 3. VIDEO INDICATOR (Top Right, Subtle)
                     Rectangle {
                         visible: delegateRoot.isVideo
                         anchors.top: parent.top
@@ -189,7 +173,7 @@ FloatingWindow {
                         width: 32
                         height: 32
                         radius: 6
-                        color: "#60000000" // Subtle semi-transparent black
+                        color: "#60000000" 
                         
                         transform: Matrix4x4 {
                             property real s: -window.skewFactor
@@ -214,5 +198,9 @@ FloatingWindow {
                 }
             }
         }
+    }
+
+    Component.onCompleted: {
+        view.forceActiveFocus();
     }
 }

@@ -5,18 +5,8 @@ import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
 
-FloatingWindow {
+Item {
     id: root
-
-    // Setting title so Hyprland can match title:^(music_win)$
-    title: "music_win"
-
-    // Geometry
-    implicitWidth: 700
-    implicitHeight: 620
-
-    // Make the base window transparent so our rounded corners show properly
-    color: "transparent"
 
     // Theme Colors
     readonly property color base: "#1e1e2e"
@@ -481,13 +471,11 @@ FloatingWindow {
                                     radius: 6
                                     color: "#9911111B"
 
-                                    // FIX 1: The clipping container tightly binds to the handle's exact visual center
                                     Item {
                                         width: progBar.handle.x - progBar.background.x + (progBar.handle.width / 2)
                                         height: parent.height
-                                        clip: true // Sharp cut hidden safely underneath the solid handle
+                                        clip: true
 
-                                        // FIX 2: The fill itself remains full-width so its left-side rounded corners never deform
                                         Item {
                                             width: progBar.availableWidth
                                             height: parent.height
@@ -527,7 +515,6 @@ FloatingWindow {
                                 }
 
                                 handle: Rectangle {
-                                    // FIX 3: Using visualPosition ensures the handle doesn't ghost or separate during animations
                                     x: progBar.leftPadding + progBar.visualPosition * (progBar.availableWidth - width)
                                     y: progBar.topPadding + (progBar.availableHeight - height) / 2
                                     implicitWidth: 14 
@@ -561,11 +548,8 @@ FloatingWindow {
                                 width: 50; height: 50
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
-                                    // Trigger debounce lock
                                     root.userToggledPlay = true;
                                     playDebounceTimer.restart();
-
-                                    // Optimistic state update for instant visual feedback
                                     var temp = Object.assign({}, root.musicData);
                                     temp.status = (temp.status === "Playing" ? "Paused" : "Playing");
                                     root.musicData = temp;

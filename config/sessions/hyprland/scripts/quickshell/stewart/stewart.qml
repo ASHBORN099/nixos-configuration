@@ -1,14 +1,8 @@
 import QtQuick
-import QtQuick.Window
 import QtQuick.Effects
 
-Window {
+Item {
     id: root
-    width: 800
-    height: 600
-    visible: true
-    title: "stewart"
-    color: "transparent" 
 
     // Master Container
     Rectangle {

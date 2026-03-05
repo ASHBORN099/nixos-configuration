@@ -1,56 +1,18 @@
 #!/usr/bin/env bash
 
-# Paths
-QS_DIR="$HOME/.config/hypr/scripts/quickshell"
+QS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BT_PID_FILE="$HOME/.cache/bt_scan_pid"
 BT_SCAN_LOG="$HOME/.cache/bt_scan.log"
 SRC_DIR="$HOME/Images/Wallpapers"
 THUMB_DIR="$HOME/.cache/wallpaper_picker/thumbs"
 
+IPC_FILE="/tmp/qs_widget_state"
 ACTION="$1"
 TARGET="$2"
 
-# -----------------------------------------------------------------------------
-# FUNCTION: Map friendly names to QML paths and window focus titles
-# -----------------------------------------------------------------------------
-get_qml_info() {
-    case "$1" in
-        battery)   QML_FILE="battery/BatteryPopup.qml";      FOCUS="title:battery-popup" ;;
-        calendar)  QML_FILE="calendar/CalendarPopup.qml";    FOCUS="title:calendar_win" ;;
-        music)     QML_FILE="music/MusicPopup.qml";          FOCUS="title:music_win" ;;
-        network)   QML_FILE="network/NetworkPopup.qml";      FOCUS="title:network-popup" ;;
-        stewart)   QML_FILE="stewart/stewart.qml";           FOCUS="title:stewart" ;;
-        wallpaper) QML_FILE="wallpaper/WallpaperPicker.qml"; FOCUS="title:wallpaper-picker" ;;
-        *) 
-            echo "Error: Unknown window '$1'."
-            echo "Available: battery, calendar, music, network, stewart, wallpaper"
-            exit 1 
-            ;;
-    esac
-}
-
-# -----------------------------------------------------------------------------
-# FUNCTION: Clean up all Quickshell popups and background tasks
-# -----------------------------------------------------------------------------
-cleanup_all() {
-    # Kill all known quickshell popups managed by this script
-    pkill -f "quickshell.*(BatteryPopup|CalendarPopup|MusicPopup|NetworkPopup|stewart|WallpaperPicker)\.qml"
-
-    # Cleanup Bluetooth scanning safely
-    if [ -f "$BT_PID_FILE" ]; then
-        kill $(cat "$BT_PID_FILE") 2>/dev/null
-        rm -f "$BT_PID_FILE"
-    fi
-    bluetoothctl scan off > /dev/null 2>&1
-}
-
-# -----------------------------------------------------------------------------
-# FUNCTION: Prep Wallpaper Picker (Thumbnails & Active Index)
-# -----------------------------------------------------------------------------
 handle_wallpaper_prep() {
     mkdir -p "$THUMB_DIR"
     (
-        # CLEANUP: Remove thumbnails that no longer have a source wallpaper
         for thumb in "$THUMB_DIR"/*; do
             [ -e "$thumb" ] || continue
             filename=$(basename "$thumb")
@@ -60,7 +22,6 @@ handle_wallpaper_prep() {
             fi
         done
 
-        # GENERATE: Create thumbnails for new or renamed wallpapers
         for img in "$SRC_DIR"/*.{jpg,jpeg,png,webp,gif,mp4,mkv,mov,webm}; do
             [ -e "$img" ] || continue
             filename=$(basename "$img")
@@ -81,7 +42,6 @@ handle_wallpaper_prep() {
         done
     ) &
 
-    # Detect Active Wallpaper & Calculate Index
     TARGET_INDEX=0
     CURRENT_SRC=""
 
@@ -108,13 +68,9 @@ handle_wallpaper_prep() {
             TARGET_INDEX=$((MATCH_LINE - 1))
         fi
     fi
-
     export WALLPAPER_INDEX="$TARGET_INDEX"
 }
 
-# -----------------------------------------------------------------------------
-# FUNCTION: Prep Network (Bluetooth & WiFi scan)
-# -----------------------------------------------------------------------------
 handle_network_prep() {
     echo "" > "$BT_SCAN_LOG"
     { echo "scan on"; sleep infinity; } | stdbuf -oL bluetoothctl > "$BT_SCAN_LOG" 2>&1 &
@@ -122,17 +78,22 @@ handle_network_prep() {
     (nmcli device wifi rescan) &
 }
 
-# =============================================================================
-# MAIN LOGIC
-# =============================================================================
+# -----------------------------------------------------------------------------
+# ENSURE MASTER WINDOW IS ALIVE
+# -----------------------------------------------------------------------------
+if ! pgrep -f "quickshell.*Main\.qml" > /dev/null; then
+    quickshell -p "$QS_DIR/Main.qml" >/dev/null 2>&1 &
+    disown
+    sleep 0.5
+fi
 
-# 1. Handle Workspace Switching & Moving directly
+# -----------------------------------------------------------------------------
+# MAIN LOGIC
+# -----------------------------------------------------------------------------
 if [[ "$ACTION" =~ ^[0-9]+$ ]]; then
     WORKSPACE_NUM="$ACTION"
     MOVE_OPT="$2"
-    
-    cleanup_all
-    
+    echo "close" > "$IPC_FILE"
     if [[ "$MOVE_OPT" == "move" ]]; then
         hyprctl dispatch movetoworkspace "$WORKSPACE_NUM"
     else
@@ -141,64 +102,28 @@ if [[ "$ACTION" =~ ^[0-9]+$ ]]; then
     exit 0
 fi
 
-# 2. Handle Closing
 if [[ "$ACTION" == "close" ]]; then
-    if [[ -z "$TARGET" || "$TARGET" == "all" ]]; then
-        # Close everything if no target is specified
-        cleanup_all
-    else
-        # Close only the specific target
-        get_qml_info "$TARGET"
-        QML_BASE=$(basename "$QML_FILE")
-        pkill -f "quickshell.*$QML_BASE"
-
-        # If it was the network window, handle the specific bluetooth cleanup
-        if [[ "$TARGET" == "network" ]]; then
-            if [ -f "$BT_PID_FILE" ]; then
-                kill $(cat "$BT_PID_FILE") 2>/dev/null
-                rm -f "$BT_PID_FILE"
-            fi
-            bluetoothctl scan off > /dev/null 2>&1
+    echo "close" > "$IPC_FILE"
+    if [[ "$TARGET" == "network" || "$TARGET" == "all" || -z "$TARGET" ]]; then
+        if [ -f "$BT_PID_FILE" ]; then
+            kill $(cat "$BT_PID_FILE") 2>/dev/null
+            rm -f "$BT_PID_FILE"
         fi
+        bluetoothctl scan off > /dev/null 2>&1
     fi
     exit 0
 fi
 
-# 3. Handle Opening / Toggling specific windows
 if [[ "$ACTION" == "open" || "$ACTION" == "toggle" ]]; then
-    
-    get_qml_info "$TARGET"
-    QML_BASE=$(basename "$QML_FILE")
-
-    # If action is 'toggle', check if it's already running in Hyprland
-    if [[ "$ACTION" == "toggle" ]]; then
-        # Extract the literal title from the focus string (e.g., 'network-popup' from 'title:network-popup')
-        WIN_TITLE="${FOCUS#title:}"
-        
-        # Check if the window is currently mapped and visible in the WM
-        if hyprctl clients | grep -q "title: $WIN_TITLE$"; then
-            # It is actively open, so close it and exit
-            cleanup_all
-            exit 0
-        fi
-    fi
-
-    # GLOBAL RESET: Ensure exclusive behavior (only one open at a time)
-    # This also acts as our garbage collector for zombie processes closed via Alt+F4
-    cleanup_all
-
-    # Run the specific setup and open it
     if [[ "$TARGET" == "network" ]]; then
         handle_network_prep
+        echo "$TARGET" > "$IPC_FILE"
     elif [[ "$TARGET" == "wallpaper" ]]; then
         handle_wallpaper_prep
+        # Pass the index directly via IPC!
+        echo "$TARGET:$WALLPAPER_INDEX" > "$IPC_FILE"
+    else
+        echo "$TARGET" > "$IPC_FILE"
     fi
-
-    quickshell -p "$QS_DIR/$QML_FILE" &
-
-    # Focus logic to ensure escape key works
-    sleep 0.2
-    hyprctl dispatch focuswindow "$FOCUS"
-
     exit 0
 fi

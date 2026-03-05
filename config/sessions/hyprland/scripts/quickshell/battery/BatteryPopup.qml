@@ -4,15 +4,10 @@ import QtQuick.Window
 import Quickshell
 import Quickshell.Io
 
-FloatingWindow {
+Item {
     id: window
-    title: "battery-popup"
-    width: 480
-    height: 760 
-    color: "transparent"
-
-    Shortcut { sequence: "Escape"; onActivated: Qt.quit() }
-
+    // Window dimensions are now inherited entirely from Main.qml's Loader
+    
     // -------------------------------------------------------------------------
     // COLORS (Catppuccin Mocha)
     // -------------------------------------------------------------------------
@@ -52,7 +47,7 @@ FloatingWindow {
     property bool sysMuted: false
     property real sysBrightness: 0
 
-    // Anti-Jitter Sync States (Locks poller updates when user is dragging)
+    // Anti-Jitter Sync States
     property bool isDraggingVol: false
     property bool isDraggingBri: false
 
@@ -61,7 +56,6 @@ FloatingWindow {
 
     readonly property bool isCharging: batStatus === "Charging"
 
-    // 1. THE CORE: BATTERY RING GRADIENTS (Strictly Battery Driven)
     readonly property color batColorStart: {
         if (isCharging) return window.green;
         if (batCapacity >= 70) return window.blue;
@@ -76,7 +70,6 @@ FloatingWindow {
         return window.maroon;
     }
 
-    // 2. THE SLIDER: POWER PROFILE GRADIENTS (Strictly Profile Driven)
     readonly property color profileStart: {
         if (powerProfile === "performance") return window.red;
         if (powerProfile === "power-saver") return window.green;
@@ -89,7 +82,6 @@ FloatingWindow {
         return window.sapphire;
     }
 
-    // 3. DUAL-TONE AMBIENT MAP
     readonly property color ambientPrimary: window.batColorStart
     readonly property color ambientSecondary: {
         if (powerProfile === "performance") return window.profileEnd;
@@ -105,7 +97,6 @@ FloatingWindow {
 
     Process {
         id: sysPoller
-        // Unified shell command polling battery, profile, uptime, amixer audio, and brightnessctl safely.
         command: ["bash", "-c", 
             "cat /sys/class/power_supply/BAT0/capacity 2>/dev/null || echo '0'; " +
             "cat /sys/class/power_supply/BAT0/status 2>/dev/null || echo 'Unknown'; " +
@@ -132,14 +123,12 @@ FloatingWindow {
                         window.upMins = parseInt(upParts[1].replace("m", "")) || 0;
                     }
 
-                    // Parse Native ALSA Volume directly
                     if (!window.isDraggingVol) {
                         let volParts = (lines[4] || "0 on").trim().split(" ");
                         window.sysVolume = parseInt(volParts[0]) || 0;
                         window.sysMuted = (volParts[1] === "off");
                     }
                     
-                    // Parse Brightnessctl
                     if (!window.isDraggingBri) {
                         window.sysBrightness = parseInt(lines[5]) || 0;
                     }
@@ -313,7 +302,8 @@ FloatingWindow {
                 MouseArea {
                     id: logoutMa
                     anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                    onClicked: { Quickshell.execDetached(["sh", "-c", "loginctl terminate-user $USER"]); Qt.quit(); }
+                    // Changed from Qt.quit() to IPC command
+                    onClicked: { Quickshell.execDetached(["sh", "-c", "loginctl terminate-user $USER"]); Quickshell.execDetached(["sh", "-c", "echo 'close' > /tmp/qs_widget_state"]); }
                 }
             }
 
@@ -334,7 +324,6 @@ FloatingWindow {
                     
                     property bool isDangerState: !window.isCharging && window.batCapacity < 15
                     
-                    // Cinematic Breathing Animation
                     SequentialAnimation on scale {
                         loops: Animation.Infinite
                         running: true
@@ -360,7 +349,6 @@ FloatingWindow {
                     border.width: 1
                     Behavior on border.color { ColorAnimation { duration: 1000 } }
 
-                    // Subtle Danger Glow
                     Rectangle {
                         anchors.fill: parent
                         radius: width / 2
@@ -374,7 +362,6 @@ FloatingWindow {
                         }
                     }
 
-                    // Soft rotating liquid glow inside the orb
                     Rectangle {
                         anchors.fill: parent
                         anchors.margins: 2
@@ -393,7 +380,6 @@ FloatingWindow {
                         }
                     }
 
-                    // Battery Canvas Layer
                     Item {
                         anchors.fill: parent
                         
@@ -441,14 +427,12 @@ FloatingWindow {
                                 
                                 ctx.lineCap = "round";
                                 
-                                // Base unfilled track
                                 ctx.lineWidth = 8;
                                 ctx.beginPath();
                                 ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
                                 ctx.strokeStyle = "#0dffffff";
                                 ctx.stroke();
                                 
-                                // Gradient for the main fill
                                 var fillGrad = ctx.createLinearGradient(0, height, width, 0);
                                 fillGrad.addColorStop(0, window.batColorStart.toString());
                                 fillGrad.addColorStop(1, window.batColorEnd.toString());
@@ -513,57 +497,56 @@ FloatingWindow {
                                 }
                             }
                         }
+                    }
 
-                        // Text Content
-                        ColumnLayout {
-                            anchors.centerIn: parent
-                            spacing: -2
+                    ColumnLayout {
+                        anchors.centerIn: parent
+                        spacing: -2
+                        
+                        RowLayout {
+                            Layout.alignment: Qt.AlignHCenter
+                            spacing: 8
                             
-                            RowLayout {
-                                Layout.alignment: Qt.AlignHCenter
-                                spacing: 8
-                                
-                                Text {
-                                    font.family: "Iosevka Nerd Font"
-                                    font.pixelSize: 32
-                                    color: window.batColorStart
-                                    text: window.isCharging ? "󰂄" : (window.batCapacity > 20 ? "󰁹" : "󰂃")
-                                    Behavior on color { ColorAnimation { duration: 400 } }
-                                }
-                                
-                                Text {
-                                    font.family: "JetBrains Mono"
-                                    font.weight: Font.Black
-                                    font.pixelSize: 54
-                                    color: window.text
-                                    text: Math.round(window.animCapacity) + "%" 
-                                }
-                            }
-
                             Text {
-                                Layout.alignment: Qt.AlignHCenter
+                                font.family: "Iosevka Nerd Font"
+                                font.pixelSize: 32
+                                color: window.batColorStart
+                                text: window.isCharging ? "󰂄" : (window.batCapacity > 20 ? "󰁹" : "󰂃")
+                                Behavior on color { ColorAnimation { duration: 400 } }
+                            }
+                            
+                            Text {
                                 font.family: "JetBrains Mono"
-                                font.weight: Font.Bold
-                                font.pixelSize: 13
-                                
-                                color: window.isCharging 
-                                        ? Qt.tint(window.green, Qt.rgba(1, 1, 1, parent.textPulse * 0.4)) 
-                                        : (centralCore.isDangerState ? Qt.tint(window.red, Qt.rgba(1, 1, 1, parent.textPulse * 0.3)) : window.subtext0)
-                                        
-                                text: window.batStatus.toUpperCase()
-                                Behavior on color { ColorAnimation { duration: 300 } }
+                                font.weight: Font.Black
+                                font.pixelSize: 54
+                                color: window.text
+                                text: Math.round(window.animCapacity) + "%" 
                             }
                         }
-                    }
 
-                    MouseArea {
-                        id: heroMa
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onEntered: batCanvas.requestPaint()
-                        onExited: batCanvas.requestPaint()
+                        Text {
+                            Layout.alignment: Qt.AlignHCenter
+                            font.family: "JetBrains Mono"
+                            font.weight: Font.Bold
+                            font.pixelSize: 13
+                            
+                            color: window.isCharging 
+                                    ? Qt.tint(window.green, Qt.rgba(1, 1, 1, parent.textPulse * 0.4)) 
+                                    : (centralCore.isDangerState ? Qt.tint(window.red, Qt.rgba(1, 1, 1, parent.textPulse * 0.3)) : window.subtext0)
+                                    
+                            text: window.batStatus.toUpperCase()
+                            Behavior on color { ColorAnimation { duration: 300 } }
+                        }
                     }
+                }
+
+                MouseArea {
+                    id: heroMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onEntered: batCanvas.requestPaint()
+                    onExited: batCanvas.requestPaint()
                 }
             }
 
@@ -593,7 +576,7 @@ FloatingWindow {
                         anchors.margins: 14
                         spacing: 12
 
-                        // Brightness Slider (Maps to Battery state)
+                        // Brightness Slider
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 15
@@ -629,7 +612,6 @@ FloatingWindow {
                                         radius: 9
                                         opacity: briMa.containsMouse ? 0.9 : 0.7
                                         Behavior on opacity { NumberAnimation { duration: 200 } }
-                                        // Smoothed width behavior specifically disabled when dragging to ensure 0-latency tracking
                                         Behavior on width { enabled: !window.isDraggingBri; NumberAnimation { duration: 200; easing.type: Easing.OutQuint } }
 
                                         gradient: Gradient {
@@ -650,19 +632,18 @@ FloatingWindow {
                                     
                                     function updateBri(mx) {
                                         let pct = Math.max(0, Math.min(100, Math.round((mx / width) * 100)));
-                                        window.sysBrightness = pct; // Optimistic update
+                                        window.sysBrightness = pct; 
                                         Quickshell.execDetached(["brightnessctl", "set", pct + "%"]);
                                     }
                                 }
                             }
                         }
 
-                        // Volume Slider (Maps to Power Profile state)
+                        // Volume Slider
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 15
 
-                            // Interactive Mute Toggle Button
                             Rectangle {
                                 Layout.preferredWidth: 32
                                 Layout.preferredHeight: 32
@@ -687,8 +668,8 @@ FloatingWindow {
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: {
                                         volSyncDelay.stop();
-                                        window.isDraggingVol = true; // Lock poller briefly
-                                        window.sysMuted = !window.sysMuted; // Optimistic update
+                                        window.isDraggingVol = true; 
+                                        window.sysMuted = !window.sysMuted;
                                         Quickshell.execDetached(["amixer", "sset", "Master", "toggle"]);
                                         volSyncDelay.restart();
                                     }
@@ -711,11 +692,8 @@ FloatingWindow {
                                         height: parent.height
                                         width: parent.width * (window.sysVolume / 100)
                                         radius: 9
-                                        
-                                        // Dimmed, frosted gray state when muted to stay perfectly visible but clearly disabled
                                         opacity: window.sysMuted ? 0.5 : (volMa.containsMouse ? 0.9 : 0.7)
                                         Behavior on opacity { NumberAnimation { duration: 200 } }
-                                        // Smoothed width behavior specifically disabled when dragging to ensure 0-latency tracking
                                         Behavior on width { enabled: !window.isDraggingVol; NumberAnimation { duration: 200; easing.type: Easing.OutQuint } }
 
                                         gradient: Gradient {
@@ -736,8 +714,7 @@ FloatingWindow {
                                     
                                     function updateVol(mx) {
                                         let pct = Math.max(0, Math.min(100, Math.round((mx / width) * 100)));
-                                        window.sysVolume = pct; // Optimistic update
-                                        
+                                        window.sysVolume = pct;
                                         if (pct > 0 && window.sysMuted) {
                                             window.sysMuted = false;
                                             Quickshell.execDetached(["amixer", "sset", "Master", "unmute"]);
@@ -750,7 +727,7 @@ FloatingWindow {
                     }
                 }
 
-                // 2. SYSTEM ACTIONS DOCK (Vertical Hold-to-Execute)
+                // 2. SYSTEM ACTIONS DOCK
                 RowLayout {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 75
@@ -775,7 +752,6 @@ FloatingWindow {
                             Behavior on color { ColorAnimation { duration: 200 } }
                             Behavior on border.color { ColorAnimation { duration: 200 } }
                             
-                            // Bouncy Hover scaling
                             scale: actionMa.pressed ? 0.96 : (actionMa.containsMouse ? 1.08 : 1.0)
                             Behavior on scale { NumberAnimation { duration: 300; easing.type: Easing.OutBack } }
 
@@ -783,7 +759,6 @@ FloatingWindow {
                             property bool triggered: false
                             property real flashOpacity: 0.0
                             
-                            // Wave Fill (Vertical)
                             Canvas {
                                 id: actionWaveCanvas
                                 anchors.fill: parent
@@ -843,14 +818,12 @@ FloatingWindow {
                                 }
                             }
 
-                            // Flash on trigger
                             Rectangle {
                                 anchors.fill: parent; radius: 18; color: "#ffffff"
                                 opacity: actionCapsule.flashOpacity
                                 PropertyAnimation on opacity { id: cardFlashAnim; to: 0; duration: 500; easing.type: Easing.OutExpo }
                             }
 
-                            // Base Text (Unfilled)
                             ColumnLayout {
                                 id: baseTextCol
                                 anchors.centerIn: parent
@@ -867,7 +840,6 @@ FloatingWindow {
                                 }
                             }
 
-                            // Overlay Text (Filled - Dark color for contrast)
                             Item {
                                 anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
                                 height: actionCapsule.height * actionCapsule.fillLevel
@@ -912,13 +884,14 @@ FloatingWindow {
 
                             Timer {
                                 id: exitTimer; interval: 500 
-                                onTriggered: { Quickshell.execDetached(["sh", "-c", cmd]); Qt.quit(); }
+                                // Changed from Qt.quit() to IPC command
+                                onTriggered: { Quickshell.execDetached(["sh", "-c", cmd]); Quickshell.execDetached(["sh", "-c", "echo 'close' > /tmp/qs_widget_state"]); }
                             }
                         }
                     }
                 }
 
-                // 3. POWER PROFILES DOCK (SLIDER REDESIGN)
+                // 3. POWER PROFILES DOCK
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 54
@@ -939,7 +912,6 @@ FloatingWindow {
                             return (width * 2) + 1;
                         }
                         
-                        // Elegant overshoot bounce
                         Behavior on x { NumberAnimation { duration: 400; easing.type: Easing.OutBack; easing.overshoot: 1.2 } }
                         
                         gradient: Gradient {

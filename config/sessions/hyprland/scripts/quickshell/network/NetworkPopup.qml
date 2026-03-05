@@ -1,36 +1,29 @@
 import QtQuick
 import QtQuick.Layouts
-import QtQuick.Window
 import QtCore
 import Quickshell
 import Quickshell.Io
 
-FloatingWindow {
+Item {
     id: window
 
-    title: "network-popup"
-    implicitWidth: 900
-    implicitHeight: 700
-    color: "transparent"
-
-    function closePopup() {
-        Quickshell.execDetached(["bash", "-c", "pkill -f 'quickshell.*NetworkPopup.qml'; if [ -f ~/.cache/bt_scan_pid ]; then kill $(cat ~/.cache/bt_scan_pid) 2>/dev/null; rm ~/.cache/bt_scan_pid; fi; bluetoothctl scan off > /dev/null 2>&1"])
-        Qt.quit()
-    }
-
-    Shortcut { sequence: "Escape"; onActivated: closePopup() }
-
     // -------------------------------------------------------------------------
-    // PERSISTENT STORAGE
+    // INSTANT CACHING ENGINE
     // -------------------------------------------------------------------------
     Settings {
         id: cache
         property string lastWifiSsid: ""
+        property string lastWifiJson: ""
+        property string lastBtJson: ""
     }
 
-    // -------------------------------------------------------------------------
-    // LIGHTWEIGHT SYSTEM AUDIO
-    // -------------------------------------------------------------------------
+    Component.onCompleted: {
+        introState = 1.0;
+        // Instantly load the UI with 0ms delay using the last known state!
+        if (cache.lastWifiJson !== "") processWifiJson(cache.lastWifiJson);
+        if (cache.lastBtJson !== "") processBtJson(cache.lastBtJson);
+    }
+
     function playSfx(filename) {
         try {
             let rawUrl = Qt.resolvedUrl("sounds/" + filename).toString();
@@ -43,9 +36,6 @@ FloatingWindow {
         } catch(e) {}
     }
 
-    // -------------------------------------------------------------------------
-    // COLORS (Catppuccin Mocha)
-    // -------------------------------------------------------------------------
     readonly property color base: "#1e1e2e"
     readonly property color mantle: "#181825"
     readonly property color crust: "#11111b"
@@ -65,10 +55,8 @@ FloatingWindow {
     readonly property color maroon: "#eba0ac"
     readonly property color peach: "#fab387"
 
-    readonly property string scriptsDir: "/home/ilyamiro/.config/hypr/scripts/quickshell/network"
-    // -------------------------------------------------------------------------
-    // VIEW MODE & CORE STATE
-    // -------------------------------------------------------------------------
+    readonly property string scriptsDir: Quickshell.env("HOME") + "/.config/hypr/scripts/quickshell/network"
+    
     property string activeMode: "bt"
     readonly property color activeColor: activeMode === "wifi" ? window.sapphire : window.mauve
     readonly property color activeGradientSecondary: activeMode === "wifi" ? window.blue : window.pink
@@ -92,9 +80,6 @@ FloatingWindow {
         if (window.showInfoView) window.updateInfoNodes();
     }
 
-    // -------------------------------------------------------------------------
-    // SMART DIFFING LIST MODELS
-    // -------------------------------------------------------------------------
     ListModel { id: wifiListModel }
     ListModel { id: btListModel }
     ListModel { id: infoListModel }
@@ -117,23 +102,15 @@ FloatingWindow {
             }
             
             let obj = {
-                id: d.id || "",
-                ssid: d.ssid || "",
-                mac: d.mac || "",
-                name: d.name || d.ssid || "", 
-                icon: d.icon || "",
-                security: d.security || "",
-                action: d.action || "",
-                isInfoNode: d.isInfoNode || false,
-                isActionable: d.isActionable !== undefined ? d.isActionable : false,
-                cmdStr: d.cmdStr || ""
+                id: d.id || "", ssid: d.ssid || "", mac: d.mac || "",
+                name: d.name || d.ssid || "", icon: d.icon || "", security: d.security || "", action: d.action || "",
+                isInfoNode: d.isInfoNode || false, isActionable: d.isActionable !== undefined ? d.isActionable : false, cmdStr: d.cmdStr || ""
             };
 
             if (foundIdx === -1) {
                 listModel.insert(i, obj);
             } else {
                 if (foundIdx !== i) { listModel.move(foundIdx, i, 1); }
-                // SMART DIFFING: Only set the property if it actually changed to prevent UI redraw lag!
                 for (let key in obj) { 
                     if (listModel.get(i)[key] !== obj[key]) {
                         listModel.setProperty(i, key, obj[key]); 
@@ -157,9 +134,6 @@ FloatingWindow {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // DATA POLLING & PENDING STATES
-    // -------------------------------------------------------------------------
     property bool wifiPowerPending: false
     property string expectedWifiPower: ""
     property string wifiPower: "off"
@@ -197,7 +171,6 @@ FloatingWindow {
     readonly property bool currentConn: activeMode === "wifi" ? window.isWifiConn : window.isBtConn
     readonly property var currentObj: activeMode === "wifi" ? window.wifiConnected : window.btConnected
 
-    // Generates the flat Single-Orbit Info Constellation
     function updateInfoNodes() {
         let nodes = [];
         if (window.currentConn && window.currentObj) {
@@ -221,64 +194,113 @@ FloatingWindow {
         else { window.syncModel(infoListModel, nodes); window.nextInfoList = null; }
     }
 
+    function processWifiJson(textData) {
+        if (textData === "") return;
+        try {
+            let data = JSON.parse(textData)
+            let fetchedPower = data.power || "off"
+            
+            if (window.expectedWifiPower !== "") {
+                if (fetchedPower === window.expectedWifiPower) { 
+                    window.wifiPower = fetchedPower;
+                    window.wifiPowerPending = false; 
+                    window.expectedWifiPower = ""; 
+                    wifiPendingReset.stop(); 
+                }
+            } else { 
+                window.wifiPower = fetchedPower;
+                window.wifiPowerPending = false; 
+            }
+
+            let newConnected = data.connected;
+            if (JSON.stringify(window.wifiConnected) !== JSON.stringify(newConnected)) {
+                window.wifiConnected = newConnected;
+            }
+            
+            let newNetworks = data.networks ? data.networks : [];
+            if (newNetworks.length > 0) {
+                let maxSig = -1; let bestSsid = newNetworks[0].id;
+                for (let i = 0; i < newNetworks.length; i++) {
+                    let sig = parseInt(newNetworks[i].signal || 0);
+                    if (sig > maxSig) { maxSig = sig; bestSsid = newNetworks[i].id; }
+                }
+                window.strongestWifiSsid = bestSsid;
+            } else { window.strongestWifiSsid = ""; }
+
+            newNetworks.sort((a, b) => a.id.localeCompare(b.id));
+
+            if (window.isWifiConn && window.activeMode === "wifi") {
+                newNetworks.push({ id: "action_settings", ssid: "Current Device", mac: "", name: "Current Device", icon: "󰒓", security: "", action: "View Info", isInfoNode: false, isActionable: true, cmdStr: "TOGGLE_VIEW" });
+            }
+
+            if (JSON.stringify(window.wifiList) !== JSON.stringify(newNetworks)) {
+                if (window.isListLocked) window.nextWifiList = newNetworks;
+                else { window.syncModel(wifiListModel, newNetworks); window.wifiList = newNetworks; window.nextWifiList = null; }
+            }
+
+            if (window.activeMode === "wifi") {
+                if (window.busyTask === "DISCONNECTING" && !window.isWifiConn) { window.busyTask = ""; busyTimeout.stop(); } 
+                else if (window.busyTask !== "" && window.isWifiConn && window.wifiConnected && window.wifiConnected.ssid === window.busyTask) { 
+                    window.playSfx("connect.wav"); window.busyTask = ""; busyTimeout.stop(); 
+                }
+                if (window.currentConn) window.updateInfoNodes();
+            }
+        } catch(e) {}
+    }
+
+    function processBtJson(textData) {
+        if (textData === "") return;
+        try {
+            let data = JSON.parse(textData)
+            let fetchedPower = data.power || "off"
+            
+            if (window.expectedBtPower !== "") {
+                if (fetchedPower === window.expectedBtPower) { 
+                    window.btPower = fetchedPower;
+                    window.btPowerPending = false; 
+                    window.expectedBtPower = ""; 
+                    btPendingReset.stop(); 
+                }
+            } else { 
+                window.btPower = fetchedPower;
+                window.btPowerPending = false; 
+            }
+
+            let newBtConnected = data.connected;
+            if (JSON.stringify(window.btConnected) !== JSON.stringify(newBtConnected)) {
+                window.btConnected = newBtConnected;
+            }
+
+            let newDevices = data.devices ? data.devices : [];
+            newDevices.sort((a, b) => a.id.localeCompare(b.id));
+
+            if (window.isBtConn && window.activeMode === "bt") {
+                newDevices.push({ id: "action_settings", ssid: "", mac: "action_settings", name: "Current Device", icon: "󰒓", action: "View Info", isInfoNode: false, isActionable: true, cmdStr: "TOGGLE_VIEW" });
+            }
+
+            if (JSON.stringify(window.btList) !== JSON.stringify(newDevices)) {
+                if (window.isListLocked) window.nextBtList = newDevices;
+                else { window.syncModel(btListModel, newDevices); window.btList = newDevices; window.nextBtList = null; }
+            }
+
+            if (window.activeMode === "bt") {
+                if (window.busyTask === "DISCONNECTING" && !window.isBtConn) { window.busyTask = ""; busyTimeout.stop(); } 
+                else if (window.busyTask !== "" && window.isBtConn && window.btConnected && window.btConnected.mac === window.busyTask) { 
+                    window.playSfx("connect.wav"); window.busyTask = ""; busyTimeout.stop(); 
+                }
+                if (window.currentConn) window.updateInfoNodes();
+            }
+        } catch(e) {}
+    }
+
     Process {
         id: wifiPoller
         command: ["bash", window.scriptsDir + "/wifi_panel_logic.sh"]
         running: true
         stdout: StdioCollector {
             onStreamFinished: {
-                let textData = this.text.trim(); if (textData === "") return;
-                try {
-                    let data = JSON.parse(textData)
-                    let fetchedPower = data.power || "off"
-                    
-                    if (window.expectedWifiPower !== "") {
-                        if (fetchedPower === window.expectedWifiPower) { 
-                            window.wifiPower = fetchedPower;
-                            window.wifiPowerPending = false; 
-                            window.expectedWifiPower = ""; 
-                            wifiPendingReset.stop(); 
-                        }
-                    } else { 
-                        window.wifiPower = fetchedPower;
-                        window.wifiPowerPending = false; 
-                    }
-
-                    // Only update the reference if the JSON actively changed to prevent UI reloading!
-                    let newConnected = data.connected;
-                    if (JSON.stringify(window.wifiConnected) !== JSON.stringify(newConnected)) {
-                        window.wifiConnected = newConnected;
-                    }
-                    
-                    let newNetworks = data.networks ? data.networks : [];
-                    if (newNetworks.length > 0) {
-                        let maxSig = -1; let bestSsid = newNetworks[0].id;
-                        for (let i = 0; i < newNetworks.length; i++) {
-                            let sig = parseInt(newNetworks[i].signal || 0);
-                            if (sig > maxSig) { maxSig = sig; bestSsid = newNetworks[i].id; }
-                        }
-                        window.strongestWifiSsid = bestSsid;
-                    } else { window.strongestWifiSsid = ""; }
-
-                    newNetworks.sort((a, b) => a.id.localeCompare(b.id));
-
-                    if (window.isWifiConn && window.activeMode === "wifi") {
-                        newNetworks.push({ id: "action_settings", ssid: "Current Device", mac: "", name: "Current Device", icon: "󰒓", security: "", action: "View Info", isInfoNode: false, isActionable: true, cmdStr: "TOGGLE_VIEW" });
-                    }
-
-                    if (JSON.stringify(window.wifiList) !== JSON.stringify(newNetworks)) {
-                        if (window.isListLocked) window.nextWifiList = newNetworks;
-                        else { window.syncModel(wifiListModel, newNetworks); window.wifiList = newNetworks; window.nextWifiList = null; }
-                    }
-
-                    if (window.activeMode === "wifi") {
-                        if (window.busyTask === "DISCONNECTING" && !window.isWifiConn) { window.busyTask = ""; busyTimeout.stop(); } 
-                        else if (window.busyTask !== "" && window.isWifiConn && window.wifiConnected && window.wifiConnected.ssid === window.busyTask) { 
-                            window.playSfx("connect.wav"); window.busyTask = ""; busyTimeout.stop(); 
-                        }
-                        if (window.currentConn) window.updateInfoNodes();
-                    }
-                } catch(e) {}
+                cache.lastWifiJson = this.text.trim();
+                processWifiJson(cache.lastWifiJson);
             }
         }
     }
@@ -289,56 +311,19 @@ FloatingWindow {
         running: true
         stdout: StdioCollector {
             onStreamFinished: {
-                let textData = this.text.trim(); if (textData === "") return;
-                try {
-                    let data = JSON.parse(textData)
-                    let fetchedPower = data.power || "off"
-                    
-                    if (window.expectedBtPower !== "") {
-                        if (fetchedPower === window.expectedBtPower) { 
-                            window.btPower = fetchedPower;
-                            window.btPowerPending = false; 
-                            window.expectedBtPower = ""; 
-                            btPendingReset.stop(); 
-                        }
-                    } else { 
-                        window.btPower = fetchedPower;
-                        window.btPowerPending = false; 
-                    }
-
-                    // Only update the reference if the JSON actively changed to prevent UI reloading!
-                    let newBtConnected = data.connected;
-                    if (JSON.stringify(window.btConnected) !== JSON.stringify(newBtConnected)) {
-                        window.btConnected = newBtConnected;
-                    }
-
-                    let newDevices = data.devices ? data.devices : [];
-                    newDevices.sort((a, b) => a.id.localeCompare(b.id));
-
-                    if (window.isBtConn && window.activeMode === "bt") {
-                        newDevices.push({ id: "action_settings", ssid: "", mac: "action_settings", name: "Current Device", icon: "󰒓", action: "View Info", isInfoNode: false, isActionable: true, cmdStr: "TOGGLE_VIEW" });
-                    }
-
-                    if (JSON.stringify(window.btList) !== JSON.stringify(newDevices)) {
-                        if (window.isListLocked) window.nextBtList = newDevices;
-                        else { window.syncModel(btListModel, newDevices); window.btList = newDevices; window.nextBtList = null; }
-                    }
-
-                    if (window.activeMode === "bt") {
-                        if (window.busyTask === "DISCONNECTING" && !window.isBtConn) { window.busyTask = ""; busyTimeout.stop(); } 
-                        else if (window.busyTask !== "" && window.isBtConn && window.btConnected && window.btConnected.mac === window.busyTask) { 
-                            window.playSfx("connect.wav"); window.busyTask = ""; busyTimeout.stop(); 
-                        }
-                        if (window.currentConn) window.updateInfoNodes();
-                    }
-                } catch(e) {}
+                cache.lastBtJson = this.text.trim();
+                processBtJson(cache.lastBtJson);
             }
         }
     }
+    
     Timer {
         interval: window.busyTask !== "" ? 1000 : 3000
         running: true; repeat: true
-        onTriggered: { wifiPoller.running = true; btPoller.running = true; }
+        onTriggered: { 
+            if (!wifiPoller.running) wifiPoller.running = true; 
+            if (!btPoller.running) btPoller.running = true; 
+        }
     }
 
     property real globalOrbitAngle: 0
@@ -347,7 +332,6 @@ FloatingWindow {
     }
 
     property real introState: 0.0
-    Component.onCompleted: introState = 1.0
     Behavior on introState { NumberAnimation { duration: 800; easing.type: Easing.OutQuint } }
 
     component LoadingDots : Row {
