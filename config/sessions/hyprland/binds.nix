@@ -24,6 +24,7 @@
          "ALT_L, SHIFT_L, exec, hyprctl switchxkblayout main prev"
 	 "$mainMod, SPACE, exec, playerctl play-pause"
 	 ", XF86AudioPause, exec, playerctl play-pause"
+	 ", XF86AudioPlay, exec, playerctl play-pause"
 	 ", xf86AudioMicMute, exec, swayosd-client --input-volume mute-toggle"
 	 ", xf86audiomute, exec, swayosd-client --output-volume mute-toggle"
 	 ", XF86MonBrightnessDown, exec, swayosd-client --brightness lower"

@@ -68,25 +68,34 @@ if [ "$STATUS" = "Playing" ] || [ "$STATUS" = "Paused" ]; then
                 fi
 
                 # C. Generate Effects (Blur & Colors)
-                # Check if it's just the placeholder (no need to compute colors)
-                isPlaceholder=$(convert "$finalArt" -format "%[hex:u.p{0,0}]" info:)
+                # Check if it's just the placeholder 
+                # (FIXED: securely stripping alpha to prevent empty strings)
+                isPlaceholder=$(convert "$finalArt" -format "%[hex:u.p{0,0}]" info: 2>/dev/null | cut -c1-6)
                 
-                if [[ "$isPlaceholder" == "313244" ]]; then
+                if [[ "$isPlaceholder" == "313244" ]] || [[ -z "$isPlaceholder" ]]; then
                     cp "$finalArt" "$blurPath"
                     # Keep default colors
                 else
-                    convert "$finalArt" -blur 0x20 -brightness-contrast -30x-10 "$blurPath"
+                    convert "$finalArt" -blur 0x20 -brightness-contrast -30x-10 "$blurPath" 2>/dev/null
                     
-                    colors=$(convert "$finalArt" -resize 100x100 -quantize RGB -colors 3 -depth 8 -format "%c" histogram:info: | \
-                             sed -n 's/.*#\([0-9A-Fa-f]\{6\}\).*/#\1/p' | tr '\n' ' ')
+                    # FIXED: Added -alpha off and +dither to prevent ImageMagick from leaking RGBA 8-digit hex codes 
+                    # which broke QML parsing and extraction arrays.
+                    colors=$(convert "$finalArt" -resize 50x50 -alpha off +dither -quantize RGB -colors 3 -depth 8 -format "%c" histogram:info: 2>/dev/null | grep -E -o '#[0-9A-Fa-f]{6}' | head -n 3 | tr '\n' ' ')
                     read -r -a color_array <<< "$colors"
+                    
                     c1=${color_array[0]:-#cba6f7}
                     c2=${color_array[1]:-$c1}
                     c3=${color_array[2]:-$c1}
                     
                     echo "linear-gradient(45deg, $c1, $c2, $c3, $c1)" > "$colorPath"
-                    opp_raw=$(convert xc:"$c1" -negate -depth 8 -format "%[hex:u]" info: | tr -d '\n')
-                    echo "#$opp_raw" > "$textPath"
+                    
+                    # FIXED: Securely stripping alpha outputs and strictly demanding a 6 char hex sequence
+                    opp_raw=$(convert xc:"$c1" -alpha off -negate -depth 8 -format "%[hex:u]" info: 2>/dev/null | grep -E -o '[0-9A-Fa-f]{6}' | head -n 1)
+                    if [ -n "$opp_raw" ]; then
+                        echo "#$opp_raw" > "$textPath"
+                    else
+                        echo "#cdd6f4" > "$textPath"
+                    fi
                 fi
 
                 # D. Cleanup
@@ -189,4 +198,3 @@ else
         artUrl: $placeholder
     }'
 fi
-

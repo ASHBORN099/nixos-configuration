@@ -124,7 +124,7 @@ Item {
         NumberAnimation { target: root; property: "introEq"; from: 0; to: 1.0; duration: 1000; easing.type: Easing.OutExpo }
     }
 
-    // Parse the CSS gradient from the bash script into QML hex colors
+    // --- FIXED COLOR PARSING LOGIC ---
     property var borderColors: {
         var defaultColors = [root.mauve, root.blue, root.red, root.mauve];
         if (!root.musicData || !root.musicData.grad) return defaultColors;
@@ -136,6 +136,22 @@ Item {
             return [matches[0], matches[1], matches[2], matches[0]]; // Wrap around for looping
         }
         return defaultColors;
+    }
+
+    // PROPER EXCEPTION-FREE FIX: Explicit bindings so GradientStop actually repaints
+    property color bc1: borderColors[0] || root.mauve
+    property color bc2: borderColors[1] || root.blue
+    property color bc3: borderColors[2] || root.red
+    property color bc4: borderColors[3] || root.mauve
+
+    property color dynamicTextColor: {
+        if (root.musicData && root.musicData.textColor) {
+            var c = String(root.musicData.textColor).trim();
+            // Securely extract exactly #RRGGBB, ignoring any alpha leak from the shell
+            var match = c.match(/^(#[0-9a-fA-F]{6})/);
+            if (match) return match[1];
+        }
+        return root.text;
     }
 
     // --- UTILITIES & OPTIMISTIC UPDATES ---
@@ -347,22 +363,11 @@ Item {
                     }
 
                     gradient: Gradient {
-                        GradientStop { 
-                            position: 0.0; color: root.borderColors[0] 
-                            Behavior on color { ColorAnimation { duration: 800; easing.type: Easing.InOutQuad } }
-                        }
-                        GradientStop { 
-                            position: 0.33; color: root.borderColors[1] 
-                            Behavior on color { ColorAnimation { duration: 800; easing.type: Easing.InOutQuad } }
-                        }
-                        GradientStop { 
-                            position: 0.66; color: root.borderColors[2] 
-                            Behavior on color { ColorAnimation { duration: 800; easing.type: Easing.InOutQuad } }
-                        }
-                        GradientStop { 
-                            position: 1.0; color: root.borderColors[3] 
-                            Behavior on color { ColorAnimation { duration: 800; easing.type: Easing.InOutQuad } }
-                        }
+                        // FIXED: Using securely unpacked color bindings
+                        GradientStop { position: 0.0; color: root.bc1; Behavior on color { ColorAnimation { duration: 800; easing.type: Easing.InOutQuad } } }
+                        GradientStop { position: 0.33; color: root.bc2; Behavior on color { ColorAnimation { duration: 800; easing.type: Easing.InOutQuad } } }
+                        GradientStop { position: 0.66; color: root.bc3; Behavior on color { ColorAnimation { duration: 800; easing.type: Easing.InOutQuad } } }
+                        GradientStop { position: 1.0; color: root.bc4; Behavior on color { ColorAnimation { duration: 800; easing.type: Easing.InOutQuad } } }
                     }
                 }
             }
@@ -547,7 +552,10 @@ Item {
                             spacing: 6
                             Text {
                                 text: root.musicData.title
-                                color: root.musicData.textColor || root.text
+                                
+                                // FIXED TEXT COLOR CALL
+                                color: root.dynamicTextColor
+                                
                                 font.family: "JetBrains Mono"
                                 font.pixelSize: 20
                                 font.bold: true
@@ -1010,49 +1018,62 @@ Item {
                                                     layer.effect: MultiEffect { blurEnabled: true; blurMax: 32; blur: 1.0 }
                                                 }
 
-                                                // The Track Fill Base
-                                                Rectangle {
-                                                    id: fillRect
+                                                // The Track Fill Base (FIXED THE SQUARE CORNERS ISSUE)
+                                                Item {
                                                     width: parent.width
                                                     height: (1 - eqSlider.visualPosition) * parent.height
                                                     y: eqSlider.visualPosition * parent.height
-                                                    radius: 5
-                                                    color: root.blue
-                                                    clip: true 
-
-                                                    // Track Override: Changes entire gradient of track
-                                                    Rectangle {
-                                                        anchors.fill: parent
-                                                        opacity: sliderDelegate.flashFade
-                                                        radius: 5
-                                                        gradient: Gradient {
-                                                            orientation: Gradient.Vertical
-                                                            GradientStop { position: 0.0; color: root.mauve }
-                                                            GradientStop { position: 0.5; color: root.pink }
-                                                            GradientStop { position: 1.0; color: root.sapphire }
-                                                        }
+                                                    
+                                                    layer.enabled: true
+                                                    layer.effect: MultiEffect {
+                                                        maskEnabled: true
+                                                        maskSource: eqFillMask
                                                     }
 
-                                                    // The Internal Charging Surge Bolt 
                                                     Rectangle {
-                                                        width: parent.width
-                                                        height: 80 // Massive physical bolt
-                                                        y: (sliderDelegate.trackPulse * (parent.height + height)) - height
+                                                        id: eqFillMask
+                                                        anchors.fill: parent
                                                         radius: 5
-                                                        opacity: Math.sin(sliderDelegate.trackPulse * Math.PI) * 2.0 * (1.0 - root.eqLightningFade)
-                                                        
-                                                        gradient: Gradient {
-                                                            orientation: Gradient.Vertical
-                                                            GradientStop { position: 0.0; color: "transparent" }
-                                                            GradientStop { position: 0.2; color: root.pink }
-                                                            GradientStop { position: 0.5; color: "#ffffff" } // Bright glowing center
-                                                            GradientStop { position: 0.8; color: root.mauve }
-                                                            GradientStop { position: 1.0; color: "transparent" }
-                                                        }
-                                                        
+                                                        visible: false
                                                         layer.enabled: true
-                                                        layer.effect: MultiEffect {
-                                                            shadowEnabled: true; shadowColor: root.pink; shadowBlur: 1.0; shadowOpacity: 1.0
+                                                    }
+
+                                                    Rectangle {
+                                                        anchors.fill: parent
+                                                        color: root.blue
+
+                                                        // Track Override: Changes entire gradient of track
+                                                        Rectangle {
+                                                            anchors.fill: parent
+                                                            opacity: sliderDelegate.flashFade
+                                                            gradient: Gradient {
+                                                                orientation: Gradient.Vertical
+                                                                GradientStop { position: 0.0; color: root.mauve }
+                                                                GradientStop { position: 0.5; color: root.pink }
+                                                                GradientStop { position: 1.0; color: root.sapphire }
+                                                            }
+                                                        }
+
+                                                        // The Internal Charging Surge Bolt 
+                                                        Rectangle {
+                                                            width: parent.width
+                                                            height: 80 // Massive physical bolt
+                                                            y: (sliderDelegate.trackPulse * (parent.height + height)) - height
+                                                            opacity: Math.sin(sliderDelegate.trackPulse * Math.PI) * 2.0 * (1.0 - root.eqLightningFade)
+                                                            
+                                                            gradient: Gradient {
+                                                                orientation: Gradient.Vertical
+                                                                GradientStop { position: 0.0; color: "transparent" }
+                                                                GradientStop { position: 0.2; color: root.pink }
+                                                                GradientStop { position: 0.5; color: "#ffffff" } // Bright glowing center
+                                                                GradientStop { position: 0.8; color: root.mauve }
+                                                                GradientStop { position: 1.0; color: "transparent" }
+                                                            }
+                                                            
+                                                            layer.enabled: true
+                                                            layer.effect: MultiEffect {
+                                                                shadowEnabled: true; shadowColor: root.pink; shadowBlur: 1.0; shadowOpacity: 1.0
+                                                            }
                                                         }
                                                     }
                                                 }
