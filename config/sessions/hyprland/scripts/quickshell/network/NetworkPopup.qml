@@ -76,7 +76,12 @@ Item {
 
     property bool showInfoView: false
 
-    property var currentCores: [null, null]
+    // Supports up to 5 simultaneous connected cores
+    property var currentCores: [null, null, null, null, null]
+    property var coreVisualIndices: [0, 0, 0, 0, 0]
+    property int activeCoreCount: 0
+    property real smoothedActiveCoreCount: activeCoreCount
+    Behavior on smoothedActiveCoreCount { NumberAnimation { duration: 1000; easing.type: Easing.InOutExpo } }
 
     function syncCores() {
         let list = activeMode === "wifi" ? (isWifiConn && wifiConnected ? [window.wifiConnected] : []) : window.btConnected;
@@ -85,36 +90,51 @@ Item {
             if (!Array.isArray(list)) list = [list];
         }
 
-        let newCores = [window.currentCores[0], window.currentCores[1]];
-        let found = [false, false];
+        let newCores = [window.currentCores[0], window.currentCores[1], window.currentCores[2], window.currentCores[3], window.currentCores[4]];
+        let found = [false, false, false, false, false];
 
         // 1. Maintain existing devices in their current visual slots
-        for (let i = 0; i < list.length && i < 2; i++) {
+        for (let i = 0; i < list.length && i < 5; i++) {
             let dev = list[i];
             let id = window.activeMode === "wifi" ? dev.ssid : dev.mac;
-
-            if (newCores[0] && (window.activeMode === "wifi" ? newCores[0].ssid : newCores[0].mac) === id) { found[0] = true; newCores[0] = dev; continue; }
-            if (newCores[1] && (window.activeMode === "wifi" ? newCores[1].ssid : newCores[1].mac) === id) { found[1] = true; newCores[1] = dev; continue; }
+            for (let c = 0; c < 5; c++) {
+                if (newCores[c] && (window.activeMode === "wifi" ? newCores[c].ssid : newCores[c].mac) === id) { 
+                    found[c] = true; newCores[c] = dev; break; 
+                }
+            }
         }
 
         // Wipe missing devices
-        if (!found[0]) newCores[0] = null;
-        if (!found[1]) newCores[1] = null;
+        for (let c = 0; c < 5; c++) { if (!found[c]) newCores[c] = null; }
 
         // 2. Map newcomer devices to any empty slots
-        for (let i = 0; i < list.length && i < 2; i++) {
+        for (let i = 0; i < list.length && i < 5; i++) {
             let dev = list[i];
             let id = window.activeMode === "wifi" ? dev.ssid : dev.mac;
-            let is0 = newCores[0] && (window.activeMode === "wifi" ? newCores[0].ssid : newCores[0].mac) === id;
-            let is1 = newCores[1] && (window.activeMode === "wifi" ? newCores[1].ssid : newCores[1].mac) === id;
-
-            if (!is0 && !is1) {
-                if (!newCores[0]) newCores[0] = dev;
-                else if (!newCores[1]) newCores[1] = dev;
+            let isFound = false;
+            for (let c = 0; c < 5; c++) {
+                if (newCores[c] && (window.activeMode === "wifi" ? newCores[c].ssid : newCores[c].mac) === id) { isFound = true; break; }
+            }
+            if (!isFound) {
+                for (let c = 0; c < 5; c++) {
+                    if (!newCores[c]) { newCores[c] = dev; break; }
+                }
             }
         }
 
         window.currentCores = newCores;
+
+        // 3. Assign continuous visual indexes for elegant ring spacing
+        let activeCount = 0;
+        let newVis = [0, 0, 0, 0, 0];
+        for (let c = 0; c < 5; c++) {
+            if (newCores[c]) {
+                newVis[c] = activeCount;
+                activeCount++;
+            }
+        }
+        window.coreVisualIndices = newVis;
+        window.activeCoreCount = activeCount;
     }
 
     onCurrentConnChanged: {
@@ -127,7 +147,9 @@ Item {
         infoListModel.clear();
         window.busyTasks = ({});
         window.disconnectingDevices = ({});
-        window.currentCores = [null, null];
+        window.currentCores = [null, null, null, null, null];
+        window.coreVisualIndices = [0, 0, 0, 0, 0];
+        window.activeCoreCount = 0;
         syncCores();
         window.showInfoView = window.currentConn;
         if (window.showInfoView) window.updateInfoNodes();
@@ -147,7 +169,7 @@ Item {
             if (!found) { listModel.remove(i); }
         }
         
-        for (let i = 0; i < dataArray.length && i < 24; i++) {
+        for (let i = 0; i < dataArray.length && i < 30; i++) {
             let d = dataArray[i];
             let foundIdx = -1;
             for (let j = i; j < listModel.count; j++) {
@@ -232,11 +254,11 @@ Item {
     
     readonly property var currentObjList: activeMode === "wifi" ? (window.isWifiConn ? [window.wifiConnected] : []) : window.btConnected
     
-    readonly property bool isLogicDualState: window.activeMode === "bt" && window.currentCores[0] !== null && window.currentCores[1] !== null
+    readonly property bool isLogicMultiState: window.activeMode === "bt" && window.activeCoreCount > 1
     
     // Smooth transition properties. Drops to 0.0 immediately if power is cut.
-    property real dualTransitionState: (isLogicDualState && window.currentPower) ? 1.0 : 0.0
-    Behavior on dualTransitionState { NumberAnimation { duration: 1000; easing.type: Easing.InOutExpo } }
+    property real multiTransitionState: (isLogicMultiState && window.currentPower) ? 1.0 : 0.0
+    Behavior on multiTransitionState { NumberAnimation { duration: 1000; easing.type: Easing.InOutExpo } }
 
     function updateInfoNodes() {
         let nodes = [];
@@ -250,9 +272,10 @@ Item {
                 let obj = cList[i];
                 let cIndex = 0;
                 
-                // Tie the specific info node to the dynamic slot assigned to its device
-                if (window.activeMode === "bt" && window.currentCores[1] && window.currentCores[1].mac === obj.mac) {
-                    cIndex = 1;
+                if (window.activeMode === "bt") {
+                    for (let c = 0; c < 5; c++) {
+                        if (window.currentCores[c] && window.currentCores[c].mac === obj.mac) { cIndex = c; break; }
+                    }
                 }
 
                 if (window.activeMode === "wifi") {
@@ -599,7 +622,7 @@ Item {
                         var targetX = item.x + item.width / 2;
                         var targetY = item.y + item.height / 2;
 
-                        function drawStrands(startX, startY, parentFade) {
+                        function drawStrands(startX, startY, parentFade, parentWidth) {
                             var dx = targetX - startX;
                             var dy = targetY - startY;
                             var fullDist = Math.sqrt(dx * dx + dy * dy);
@@ -610,7 +633,7 @@ Item {
                             var cosA = Math.cos(alpha);
                             var sinA = Math.sin(alpha);
                             
-                            var coreVisualRadius = (200 - (50 * window.dualTransitionState)) / 2;
+                            var coreVisualRadius = parentWidth / 2;
                             var startOffset = coreVisualRadius + 5; 
                             var endOffset = 35; 
                             
@@ -666,11 +689,15 @@ Item {
                         if (item.myParentIdx === -1) {
                             for (var c = 0; c < coreRepeater.count; c++) {
                                 var cItem = coreRepeater.itemAt(c);
-                                if (cItem && cItem.activeTransition > 0.01) drawStrands(cItem.x + cItem.width/2, cItem.y + cItem.height/2, cItem.activeTransition);
+                                if (cItem && cItem.activeTransition > 0.01) {
+                                    drawStrands(cItem.x + cItem.width/2, cItem.y + cItem.height/2, cItem.activeTransition, cItem.width);
+                                }
                             }
                         } else {
                             var pItem = coreRepeater.itemAt(item.myParentIdx);
-                            if (pItem && pItem.activeTransition > 0.01) drawStrands(pItem.x + pItem.width/2, pItem.y + pItem.height/2, pItem.activeTransition);
+                            if (pItem && pItem.activeTransition > 0.01) {
+                                drawStrands(pItem.x + pItem.width/2, pItem.y + pItem.height/2, pItem.activeTransition, pItem.width);
+                            }
                         }
                     }
                 }
@@ -683,11 +710,11 @@ Item {
                 z: 1
 
                 // =========================================================
-                // 1. DYNAMIC CENTRAL CORES (Wi-Fi stays single, BT handles 1 or 2)
+                // 1. DYNAMIC CENTRAL CORES (N-Device Supported)
                 // =========================================================
                 Repeater {
                     id: coreRepeater
-                    model: 2
+                    model: 5
 
                     delegate: Item {
                         id: coreContainer
@@ -696,7 +723,7 @@ Item {
                         
                         property bool isPrimary: index === 0
                         property bool hasDevice: myDevice !== null
-                        property bool isReallyActive: hasDevice || (isPrimary && window.currentCores[0] === null && window.currentCores[1] === null)
+                        property bool isReallyActive: hasDevice || (isPrimary && window.activeCoreCount === 0)
 
                         property real activeTransition: isReallyActive ? 1.0 : 0.0
                         
@@ -705,16 +732,23 @@ Item {
                             NumberAnimation { duration: 1000; easing.type: Easing.InOutExpo } 
                         }
 
-                        property real dualShift: window.activeMode === "wifi" ? 0.0 : window.dualTransitionState
+                        property real multiShift: window.activeMode === "wifi" ? 0.0 : window.multiTransitionState
 
-                        width: window.currentPower ? (200 - (50 * dualShift)) : 160
+                        // Automatically scales down core sizes as more devices fill the ring
+                        width: window.currentPower ? (200 - (30 * multiShift) - (15 * Math.max(0, window.smoothedActiveCoreCount - 2))) : 160
                         height: width
                         
-                        property real coreOrbitAngle: window.globalOrbitAngle * 1.5 + (index * Math.PI)
+                        property real myBaseAngle: (window.coreVisualIndices[index] / Math.max(1, window.activeCoreCount)) * Math.PI * 2
+                        property real animatedBaseAngle: myBaseAngle
+                        Behavior on animatedBaseAngle { NumberAnimation { duration: 1000; easing.type: Easing.InOutExpo } }
                         
-                        // Widened separation to prevent overlapping the central scan node
-                        x: (orbitContainer.width / 2 - width / 2) + (Math.cos(coreOrbitAngle) * 180 * dualShift)
-                        y: (orbitContainer.height / 2 - height / 2) + (Math.sin(coreOrbitAngle) * 110 * dualShift)
+                        property real coreOrbitAngle: window.globalOrbitAngle * 1.5 + animatedBaseAngle
+                        
+                        property real myOrbitRadiusX: 180 + (window.activeCoreCount > 2 ? 20 : 0)
+                        property real myOrbitRadiusY: 110 + (window.activeCoreCount > 2 ? 15 : 0)
+
+                        x: (orbitContainer.width / 2 - width / 2) + (Math.cos(coreOrbitAngle) * myOrbitRadiusX * multiShift * activeTransition)
+                        y: (orbitContainer.height / 2 - height / 2) + (Math.sin(coreOrbitAngle) * myOrbitRadiusY * multiShift * activeTransition)
                         
                         opacity: activeTransition
                         scale: bumpScale * (0.8 + 0.2 * activeTransition)
@@ -906,14 +940,14 @@ Item {
                                     Text {
                                         Layout.alignment: Qt.AlignHCenter
                                         font.family: "Iosevka Nerd Font"
-                                        font.pixelSize: 48 - (16 * coreContainer.dualShift)
+                                        font.pixelSize: 48 - (16 * coreContainer.multiShift)
                                         color: window.currentPower ? window.overlay0 : window.surface2
                                         text: window.activeMode === "wifi" ? "󰤮" : "󰂲"
                                     }
                                     Text {
                                         Layout.alignment: Qt.AlignHCenter
                                         font.family: "JetBrains Mono"; font.weight: Font.Bold
-                                        font.pixelSize: 14 - (3 * coreContainer.dualShift)
+                                        font.pixelSize: 14 - (3 * coreContainer.multiShift)
                                         color: window.overlay0
                                         text: window.currentPowerPending 
                                             ? ((window.activeMode === "wifi" ? window.expectedWifiPower : window.expectedBtPower) === "on" ? "Powering On..." : "Powering Off...") 
@@ -931,7 +965,7 @@ Item {
                                     Text {
                                         Layout.alignment: Qt.AlignHCenter
                                         font.family: "Iosevka Nerd Font"
-                                        font.pixelSize: 48 - (16 * coreContainer.dualShift)
+                                        font.pixelSize: 48 - (16 * coreContainer.multiShift)
                                         color: isMyDisconnecting ? window.overlay1 : window.crust
                                         text: isMyDisconnecting ? "" : (coreMa.containsMouse ? (window.activeMode === "wifi" ? "󰖪" : "󰂲") : (coreContainer.myDevice ? coreContainer.myDevice.icon : ""))
                                         Behavior on color { ColorAnimation { duration: 200 } }
@@ -941,10 +975,10 @@ Item {
 
                                     Text {
                                         Layout.alignment: Qt.AlignHCenter
-                                        Layout.maximumWidth: 150 - (50 * coreContainer.dualShift)
+                                        Layout.maximumWidth: 150 - (50 * coreContainer.multiShift)
                                         horizontalAlignment: Text.AlignHCenter
                                         font.family: "JetBrains Mono"; font.weight: Font.Black
-                                        font.pixelSize: 16 - (4 * coreContainer.dualShift)
+                                        font.pixelSize: 16 - (4 * coreContainer.multiShift)
                                         color: isMyDisconnecting ? window.overlay1 : window.crust
                                         text: coreContainer.myDevice ? (window.activeMode === "wifi" ? coreContainer.myDevice.ssid : coreContainer.myDevice.name) : ""
                                         elide: Text.ElideRight
@@ -1079,42 +1113,41 @@ Item {
                                 return idx;
                             }
 
-                            property real unifiedRatio: window.activeMode === "wifi" ? 0.0 : window.dualTransitionState
+                            property real unifiedRatio: window.activeMode === "wifi" ? 0.0 : window.multiTransitionState
 
                             property real activeCount: (unifiedRatio > 0.5 && myParentIdx !== -1) ? siblingsCount : orbitRepeater.count
-                            property real dynamicScale: activeCount > 10 ? Math.max(0.75, 12.0 / activeCount) : (unifiedRatio > 0.5 ? 0.8 : 1.0)
+                            property real dynamicScale: activeCount > 10 ? Math.max(0.6, 12.0 / activeCount) : (unifiedRatio > 0.5 ? (window.activeCoreCount > 2 ? 0.7 : 0.8) : 1.0)
                             
-                            property real safeDualShift: window.activeMode === "wifi" ? 0.0 : window.dualTransitionState
-                            property real expectedCoreAngle: (window.globalOrbitAngle * 1.5) + (myParentIdx !== -1 ? myParentIdx * Math.PI : 0)
+                            property real safeMultiShift: window.activeMode === "wifi" ? 0.0 : window.multiTransitionState
+                            property var pItem: myParentIdx !== -1 ? coreRepeater.itemAt(myParentIdx) : null
                             
-                            property real parentX: (orbitContainer.width / 2) + (myParentIdx !== -1 ? Math.cos(expectedCoreAngle) * 180 * safeDualShift : 0)
-                            property real parentY: (orbitContainer.height / 2) + (myParentIdx !== -1 ? Math.sin(expectedCoreAngle) * 110 * safeDualShift : 0)
+                            property real parentX: pItem ? (orbitContainer.width / 2) + (Math.cos(parentCoreAngle) * pItem.myOrbitRadiusX * safeMultiShift * pItem.activeTransition) : (orbitContainer.width / 2)
+                            property real parentY: pItem ? (orbitContainer.height / 2) + (Math.sin(parentCoreAngle) * pItem.myOrbitRadiusY * safeMultiShift * pItem.activeTransition) : (orbitContainer.height / 2)
 
-                            property real coreBaseAngle: myParentIdx !== -1 ? (myParentIdx * Math.PI) : 0
+                            property real parentBaseAngle: pItem ? pItem.animatedBaseAngle : 0
                             
                             // Perfect even spacing in single mode bypassing the parent sorting entirely
                             property real singleBaseAngle: (index / Math.max(1, orbitRepeater.count)) * Math.PI * 2
                             property real singleLiveAngle: (window.globalOrbitAngle * 1.5) + singleBaseAngle
                             
-                            property real arcSpread: Math.PI * 0.7 
+                            property real arcSpread: Math.PI * 0.8 
                             property real nodeOffset: (siblingsCount > 1) ? ((localIndex / (siblingsCount - 1)) - 0.5) * arcSpread : 0
-                            property real parentCoreAngle: (window.globalOrbitAngle * 1.5) + coreBaseAngle
-                            property real dualLiveAngle: myParentIdx === -1 ? singleLiveAngle : (parentCoreAngle + nodeOffset)
+                            property real parentCoreAngle: (window.globalOrbitAngle * 1.5) + parentBaseAngle
+                            property real multiLiveAngle: myParentIdx === -1 ? singleLiveAngle : (parentCoreAngle + nodeOffset)
 
                             property int ringIndex: isInfoNode ? 0 : index % 2
                             property real ringOffset: ringIndex * 40
 
-                            // Increased radii to make lightnings noticeably longer and nodes visually separated in 1-device mode
                             property real singleRadX: isInfoNode ? 280 : 320 + ringOffset
                             property real singleRadY: isInfoNode ? 180 : 200 + ringOffset
                             
                             // Scan node (-1) perfectly snaps to dead center (0,0) so it avoids crossing paths with Cores
-                            property real dualRadX: isInfoNode ? (myParentIdx === -1 ? 0 : 160) : 340 + ringOffset
-                            property real dualRadY: isInfoNode ? (myParentIdx === -1 ? 0 : 160) : 240 + ringOffset
+                            property real multiRadX: isInfoNode ? (myParentIdx === -1 ? 0 : (window.activeCoreCount > 2 ? 180 : 160)) : 340 + ringOffset
+                            property real multiRadY: isInfoNode ? (myParentIdx === -1 ? 0 : (window.activeCoreCount > 2 ? 180 : 160)) : 240 + ringOffset
 
-                            property real currentRadX: (singleRadX * (1 - unifiedRatio)) + (dualRadX * unifiedRatio)
-                            property real currentRadY: (singleRadY * (1 - unifiedRatio)) + (dualRadY * unifiedRatio)
-                            property real currentAngle: (singleLiveAngle * (1 - unifiedRatio)) + (dualLiveAngle * unifiedRatio)
+                            property real currentRadX: (singleRadX * (1 - unifiedRatio)) + (multiRadX * unifiedRatio)
+                            property real currentRadY: (singleRadY * (1 - unifiedRatio)) + (multiRadY * unifiedRatio)
+                            property real currentAngle: (singleLiveAngle * (1 - unifiedRatio)) + (multiLiveAngle * unifiedRatio)
                             
                             property real pwrDrift: window.currentPower ? 0 : 40
                             Behavior on pwrDrift { NumberAnimation { duration: 800; easing.type: Easing.OutQuint } }
