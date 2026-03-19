@@ -239,12 +239,12 @@ elif [[ "$1" == "--hex" ]]; then cat "$json_file" | jq -r '.forecast[0].hex'
 # --- NEW HOURLY MODES FOR TOPBAR ---
 elif [[ "$1" == "--current-icon" ]]; then 
     curr_time=$(date +%H:%M)
-    cat "$json_file" | jq -r --arg ct "$curr_time" '.forecast[0].hourly | map(select(.time >= $ct)) | if length > 0 then .[0].icon else .[-1].icon end'
+    cat "$json_file" | jq -r --arg ct "$curr_time" '(.forecast[0].hourly | map(select(.time <= $ct)) | last) // .forecast[0].hourly[0] | .icon'
 elif [[ "$1" == "--current-temp" ]]; then 
     curr_time=$(date +%H:%M)
-    t=$(cat "$json_file" | jq -r --arg ct "$curr_time" '.forecast[0].hourly | map(select(.time >= $ct)) | if length > 0 then .[0].temp else .[-1].temp end')
+    t=$(cat "$json_file" | jq -r --arg ct "$curr_time" '(.forecast[0].hourly | map(select(.time <= $ct)) | last) // .forecast[0].hourly[0] | .temp')
     echo "${t}°C"
 elif [[ "$1" == "--current-hex" ]]; then 
     curr_time=$(date +%H:%M)
-    cat "$json_file" | jq -r --arg ct "$curr_time" '.forecast[0].hourly | map(select(.time >= $ct)) | if length > 0 then .[0].hex else .[-1].hex end'
+    cat "$json_file" | jq -r --arg ct "$curr_time" '(.forecast[0].hourly | map(select(.time <= $ct)) | last) // .forecast[0].hourly[0] | .hex'
 fi

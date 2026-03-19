@@ -312,6 +312,24 @@ Item {
                 anchors.fill: parent
                 z: 1
 
+                // --- CLEAN OUTSIDE GLOW HALO ---
+                Rectangle {
+                    anchors.centerIn: centralCore
+                    width: centralCore.width + 45
+                    height: width
+                    radius: width / 2
+                    color: centralCore.isDangerState ? window.red : window.ambientPrimary
+                    opacity: centralCore.isDangerState ? 0.25 : 0.15
+                    z: 0 
+                    Behavior on color { ColorAnimation { duration: 400 } }
+                    SequentialAnimation on scale {
+                        loops: Animation.Infinite; running: true
+                        NumberAnimation { to: heroMa.containsMouse ? 1.15 : 1.08; duration: heroMa.containsMouse ? 800 : 2000; easing.type: Easing.InOutSine }
+                        NumberAnimation { to: 1.0; duration: heroMa.containsMouse ? 800 : 2000; easing.type: Easing.InOutSine }
+                    }
+                }
+                // -------------------------------
+
                 Rectangle {
                     id: centralCore
                     width: 260
@@ -319,6 +337,7 @@ Item {
                     anchors.centerIn: parent
                     anchors.verticalCenterOffset: -70
                     radius: width / 2
+                    z: 1
                     
                     property bool isDangerState: !window.isCharging && window.batCapacity < 15
                     
@@ -343,10 +362,6 @@ Item {
                         GradientStop { position: 1.0; color: window.base }
                     }
 
-                    border.color: centralCore.isDangerState ? window.red : window.ambientPrimary
-                    border.width: 1
-                    Behavior on border.color { ColorAnimation { duration: 1000 } }
-
                     Rectangle {
                         anchors.fill: parent
                         radius: width / 2
@@ -357,24 +372,6 @@ Item {
                             loops: Animation.Infinite; running: centralCore.isDangerState
                             NumberAnimation { to: 0.25; duration: 600; easing.type: Easing.InOutSine }
                             NumberAnimation { to: 0.15; duration: 600; easing.type: Easing.InOutSine }
-                        }
-                    }
-
-                    Rectangle {
-                        anchors.fill: parent
-                        anchors.margins: 2
-                        radius: width / 2
-                        opacity: heroMa.containsMouse ? 0.3 : 0.15
-                        Behavior on opacity { NumberAnimation { duration: 400; easing.type: Easing.OutQuint } }
-                        
-                        RotationAnimation on rotation {
-                            from: 0; to: 360; duration: 15000; loops: Animation.Infinite; running: true
-                        }
-                        
-                        gradient: Gradient {
-                            orientation: Gradient.Horizontal
-                            GradientStop { position: 0.0; color: window.batColorStart; Behavior on color { ColorAnimation { duration: 800 } } }
-                            GradientStop { position: 1.0; color: "transparent" }
                         }
                     }
 
@@ -759,10 +756,10 @@ Item {
                     
                     Repeater {
                         model: ListModel {
-                            ListElement { lbl: "Lock"; cmd: "hyprlock"; icon: ""; c1: "#cba6f7"; c2: "#f5c2e7" }
-                            ListElement { lbl: "Sleep"; cmd: "hyprlock & systemctl suspend"; icon: "ᶻ 𝗓 𐰁"; c1: "#89b4fa"; c2: "#74c7ec" }
-                            ListElement { lbl: "Reboot"; cmd: "systemctl reboot"; icon: "󰑓"; c1: "#f9e2af"; c2: "#fab387" }
-                            ListElement { lbl: "Power"; cmd: "systemctl poweroff"; icon: ""; c1: "#f38ba8"; c2: "#eba0ac" }
+                            ListElement { lbl: "Lock"; cmd: "hyprlock"; icon: ""; c1: "#cba6f7"; c2: "#f5c2e7"; weight: 1.0 }
+                            ListElement { lbl: "Sleep"; cmd: "hyprlock & systemctl suspend"; icon: "ᶻ 𝗓 𐰁"; c1: "#89b4fa"; c2: "#74c7ec"; weight: 1.0 }
+                            ListElement { lbl: "Reboot"; cmd: "systemctl reboot"; icon: "󰑓"; c1: "#f9e2af"; c2: "#fab387"; weight: 2.5 }
+                            ListElement { lbl: "Power"; cmd: "systemctl poweroff"; icon: ""; c1: "#f38ba8"; c2: "#eba0ac"; weight: 3.5 }
                         }
                         
                         delegate: Rectangle {
@@ -776,8 +773,10 @@ Item {
                             Behavior on color { ColorAnimation { duration: 200 } }
                             Behavior on border.color { ColorAnimation { duration: 200 } }
                             
-                            scale: actionMa.pressed ? 0.96 : (actionMa.containsMouse ? 1.08 : 1.0)
-                            Behavior on scale { NumberAnimation { duration: 300; easing.type: Easing.OutBack } }
+                            // --- CLEAN STIFF RESISTANCE EFFECT ---
+                            scale: actionMa.pressed ? (0.98 - (0.01 * weight)) : (actionMa.containsMouse ? 1.08 : 1.0)
+                            Behavior on scale { NumberAnimation { duration: 400; easing.type: Easing.OutQuart } }
+                            // -------------------------------------
 
                             property real fillLevel: 0.0
                             property bool triggered: false
@@ -900,7 +899,7 @@ Item {
 
                             NumberAnimation {
                                 id: fillAnim; target: actionCapsule; property: "fillLevel"; to: 1.0
-                                duration: 600 * (1.0 - actionCapsule.fillLevel); easing.type: Easing.InSine
+                                duration: (550 * weight) * (1.0 - actionCapsule.fillLevel); easing.type: Easing.InSine
                                 onFinished: {
                                     actionCapsule.triggered = true; actionCapsule.flashOpacity = 0.6; cardFlashAnim.start();
                                     window.introState = 0.0; exitTimer.start();

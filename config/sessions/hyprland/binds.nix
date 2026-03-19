@@ -45,7 +45,7 @@
 	 "ALT, TAB, exec, bash ~/.config/hypr/scripts/rofi_show.sh window"
 	 "$mainMod, TAB, exec, bash ~/.config/hypr/scripts/quicklinks.sh"
 	 "$mainMod, C, exec, bash ~/.config/hypr/scripts/rofi_clipboard.sh"
-	 "$mainMod, M, exec, bash ~/.config/hypr/scripts/monitors.sh"
+	 "$mainMod, M, exec, bash ~/.config/hypr/scripts/qs_manager.sh toggle monitors"
          "$mainMod, A, exec, swaync-client -t -sw"
 	 "$mainMod&SHIFT_L, F, togglefloating,"
 

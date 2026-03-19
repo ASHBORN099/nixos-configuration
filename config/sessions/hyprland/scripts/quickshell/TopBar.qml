@@ -199,7 +199,7 @@ PanelWindow {
             }
         }
     }
-    Timer { interval: 300000; running: true; repeat: true; triggeredOnStart: true; onTriggered: weatherPoller.running = true }
+    Timer { interval: 150000; running: true; repeat: true; triggeredOnStart: true; onTriggered: weatherPoller.running = true }
 
     // Native Qt Time Formatting
     Timer {
