@@ -13,6 +13,8 @@ DESKTOP_CACHE_NAME = {}
 DESKTOP_CACHE_ICON = {}
 CACHE_BUILT = False
 
+SYSTEM_STATES = {"Desktop", "Locked", "Quickshell", "Unknown"}
+
 def get_xdg_search_dirs():
     search_dirs = []
     xdg_data_home = os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
@@ -55,21 +57,14 @@ def build_desktop_cache():
                                     wmclass = line.split("=", 1)[1].strip().lower()
                         
                         if name:
+                            # Strict matching
                             base = f[:-8].lower()
-                            
                             DESKTOP_CACHE_NAME[base] = name
                             DESKTOP_CACHE_ICON[base] = icon
                             
-                            DESKTOP_CACHE_NAME[name.lower()] = name
-                            DESKTOP_CACHE_ICON[name.lower()] = icon
-
                             if wmclass:
                                 DESKTOP_CACHE_NAME[wmclass] = name
                                 DESKTOP_CACHE_ICON[wmclass] = icon
-                            parts = base.split('.')
-                            if len(parts) > 1:
-                                DESKTOP_CACHE_NAME[parts[-1]] = name
-                                DESKTOP_CACHE_ICON[parts[-1]] = icon
                     except Exception:
                         pass
         except Exception:
@@ -77,7 +72,9 @@ def build_desktop_cache():
     CACHE_BUILT = True
 
 def get_app_icon(app_class):
-    if not app_class or app_class == "Unknown": return ""
+    if not app_class or app_class in SYSTEM_STATES:
+        return ""
+        
     build_desktop_cache()
     
     app_class_lower = app_class.lower()
@@ -107,7 +104,7 @@ def main():
     if not os.path.exists(DB_PATH):
         print(json.dumps({
             "total": 0, "average": 0, "week_range": "", "yesterday": 0, "current": "History", 
-            "apps": [], "week_apps": [], "week": [], "month": [], "hourly": [0]*48, "week_heatmap": [[0]*24 for _ in range(7)]
+            "apps": [], "week_apps": [], "week": [], "month": [], "hourly": [0]*48, "week_heatmap": [[0]*24 for _ in range(7)], "peak_usage_str": "N/A"
         }))
         return
 
@@ -162,7 +159,7 @@ def main():
             "percent": round(percentage, 1)
         })
 
-    # --- NEW: Week Apps ---
+    # Weekly Top Apps
     c.execute(f'''
         SELECT app_class, COALESCE(app_title, app_class), SUM(seconds) as secs 
         FROM focus_log 
@@ -227,7 +224,7 @@ def main():
     except sqlite3.OperationalError:
         pass
 
-    # --- NEW: Week Heatmap (7x24) ---
+    # Week Heatmap (7x24)
     week_heatmap = [[0]*24 for _ in range(7)]
     try:
         c.execute(f'''
@@ -244,6 +241,47 @@ def main():
     except sqlite3.OperationalError:
         pass
 
+    # Exact Peak Usage minutes calculation
+    minute_data = [0] * 1440
+    try:
+        c.execute(f'''
+            SELECT minute_idx, SUM(seconds)
+            FROM focus_minutes
+            WHERE log_date >= ? AND log_date <= ? {filter_sql}
+            GROUP BY minute_idx
+        ''', params_avg)
+        for row in c.fetchall():
+            idx, secs = row
+            if 0 <= idx < 1440:
+                minute_data[idx] += secs
+    except sqlite3.OperationalError:
+        pass
+
+    peak_str = "N/A"
+    max_sum = 0
+    best_window = None
+    # Sliding window of 60 mins to find peak cluster
+    for i in range(1440 - 60):
+        w_sum = sum(minute_data[i:i+60])
+        if w_sum > max_sum and w_sum > 0:
+            max_sum = w_sum
+            best_window = (i, i+60)
+
+    if best_window:
+        start_idx, end_idx = best_window
+        # Trim leading zero-activity minutes
+        while start_idx < end_idx and minute_data[start_idx] == 0:
+            start_idx += 1
+        
+        # Trim trailing zero-activity minutes
+        actual_end = end_idx - 1
+        while actual_end > start_idx and minute_data[actual_end] == 0:
+            actual_end -= 1
+            
+        s_h, s_m = divmod(start_idx, 60)
+        e_h, e_m = divmod(actual_end, 60)
+        peak_str = f"{s_h:02d}:{s_m:02d} - {e_h:02d}:{e_m:02d}"
+
     result = {
         "selected_date": target_date.isoformat(),
         "total": total_seconds,
@@ -256,7 +294,8 @@ def main():
         "week": week_data,
         "month": month_data,
         "hourly": hourly_data,
-        "week_heatmap": week_heatmap
+        "week_heatmap": week_heatmap,
+        "peak_usage_str": peak_str
     }
     
     print(json.dumps(result))

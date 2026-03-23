@@ -139,13 +139,13 @@ Item {
         }
         
         function formatHour(h) {
-            if(h === 0) return "12 AM";
-            if(h === 12) return "12 PM";
-            if(h > 12) return (h - 12) + " PM";
-            return h + " AM";
+            return h.toString().padStart(2, '0') + ":00";
         }
         
-        if (maxHourVal > 0) {
+        // Use exact minute strings from backend if available, otherwise fallback to 24h fallback logic
+        if (data.peak_usage_str && data.peak_usage_str !== "N/A") {
+            window.peakUsageHours = data.peak_usage_str;
+        } else if (maxHourVal > 0) {
             window.peakUsageHours = formatHour(peakH) + " - " + formatHour((peakH + 1) % 24);
         } else {
             window.peakUsageHours = "N/A";
@@ -1012,18 +1012,18 @@ Item {
                                 }
                             }
 
-                            // X-Axis Labels (00:00, 06:00, 12:00, 18:00, 23:00)
+                            // X-Axis Labels 24h
                             RowLayout {
                                 Layout.fillWidth: true
-                                Text { font.family: "Inter, Roboto, sans-serif"; font.weight: Font.Medium; font.pixelSize: 11; color: window.overlay0; text: "12 AM" }
+                                Text { font.family: "Inter, Roboto, sans-serif"; font.weight: Font.Medium; font.pixelSize: 11; color: window.overlay0; text: "00:00" }
                                 Item { Layout.fillWidth: true }
-                                Text { font.family: "Inter, Roboto, sans-serif"; font.weight: Font.Medium; font.pixelSize: 11; color: window.overlay0; text: "6 AM" }
+                                Text { font.family: "Inter, Roboto, sans-serif"; font.weight: Font.Medium; font.pixelSize: 11; color: window.overlay0; text: "06:00" }
                                 Item { Layout.fillWidth: true }
-                                Text { font.family: "Inter, Roboto, sans-serif"; font.weight: Font.Medium; font.pixelSize: 11; color: window.overlay0; text: "12 PM" }
+                                Text { font.family: "Inter, Roboto, sans-serif"; font.weight: Font.Medium; font.pixelSize: 11; color: window.overlay0; text: "12:00" }
                                 Item { Layout.fillWidth: true }
-                                Text { font.family: "Inter, Roboto, sans-serif"; font.weight: Font.Medium; font.pixelSize: 11; color: window.overlay0; text: "6 PM" }
+                                Text { font.family: "Inter, Roboto, sans-serif"; font.weight: Font.Medium; font.pixelSize: 11; color: window.overlay0; text: "18:00" }
                                 Item { Layout.fillWidth: true }
-                                Text { font.family: "Inter, Roboto, sans-serif"; font.weight: Font.Medium; font.pixelSize: 11; color: window.overlay0; text: "11 PM" }
+                                Text { font.family: "Inter, Roboto, sans-serif"; font.weight: Font.Medium; font.pixelSize: 11; color: window.overlay0; text: "23:00" }
                             }
                         }
                     }
@@ -1124,20 +1124,20 @@ Item {
                                     }
                                 }
                                 
-                                // X axis for heatmap hours
+                                // X axis for heatmap hours 24h
                                 RowLayout {
                                     Layout.fillWidth: true
                                     Layout.topMargin: 4
                                     Item { Layout.preferredWidth: 75 } // Label Spacer
-                                    Text { font.family: "Inter, Roboto, sans-serif"; font.weight: Font.Medium; font.pixelSize: 11; color: window.overlay0; text: "12 AM"; Layout.alignment: Qt.AlignLeft }
+                                    Text { font.family: "Inter, Roboto, sans-serif"; font.weight: Font.Medium; font.pixelSize: 11; color: window.overlay0; text: "00:00"; Layout.alignment: Qt.AlignLeft }
                                     Item { Layout.fillWidth: true }
-                                    Text { font.family: "Inter, Roboto, sans-serif"; font.weight: Font.Medium; font.pixelSize: 11; color: window.overlay0; text: "6 AM"; Layout.alignment: Qt.AlignHCenter }
+                                    Text { font.family: "Inter, Roboto, sans-serif"; font.weight: Font.Medium; font.pixelSize: 11; color: window.overlay0; text: "06:00"; Layout.alignment: Qt.AlignHCenter }
                                     Item { Layout.fillWidth: true }
-                                    Text { font.family: "Inter, Roboto, sans-serif"; font.weight: Font.Medium; font.pixelSize: 11; color: window.overlay0; text: "12 PM"; Layout.alignment: Qt.AlignHCenter }
+                                    Text { font.family: "Inter, Roboto, sans-serif"; font.weight: Font.Medium; font.pixelSize: 11; color: window.overlay0; text: "12:00"; Layout.alignment: Qt.AlignHCenter }
                                     Item { Layout.fillWidth: true }
-                                    Text { font.family: "Inter, Roboto, sans-serif"; font.weight: Font.Medium; font.pixelSize: 11; color: window.overlay0; text: "6 PM"; Layout.alignment: Qt.AlignHCenter }
+                                    Text { font.family: "Inter, Roboto, sans-serif"; font.weight: Font.Medium; font.pixelSize: 11; color: window.overlay0; text: "18:00"; Layout.alignment: Qt.AlignHCenter }
                                     Item { Layout.fillWidth: true }
-                                    Text { font.family: "Inter, Roboto, sans-serif"; font.weight: Font.Medium; font.pixelSize: 11; color: window.overlay0; text: "11 PM"; Layout.alignment: Qt.AlignRight }
+                                    Text { font.family: "Inter, Roboto, sans-serif"; font.weight: Font.Medium; font.pixelSize: 11; color: window.overlay0; text: "23:00"; Layout.alignment: Qt.AlignRight }
                                 }
                             }
 

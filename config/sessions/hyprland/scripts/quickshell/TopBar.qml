@@ -321,12 +321,18 @@ PanelWindow {
                             
                             Layout.preferredHeight: 32; radius: 10
                             
-                            // PERFECTED WORKSPACE STATES - Darker occupied state & slightly dimmed active
+                            // IMPROVED WORKSPACE STATES - Clearer hierarchy for occupied vs empty
                             color: modelData.state === "active" 
-                                    ? Qt.rgba(mocha.mauve.r, mocha.mauve.g, mocha.mauve.b, 0.9)
-                                    : (modelData.state === "occupied" 
+                                    ? mocha.mauve 
+                                    : (isHovered 
                                         ? Qt.rgba(mocha.surface2.r, mocha.surface2.g, mocha.surface2.b, 0.9) 
-                                        : (isHovered ? Qt.rgba(mocha.surface1.r, mocha.surface1.g, mocha.surface1.b, 0.6) : "transparent"))
+                                        : (modelData.state === "occupied" 
+                                            ? Qt.rgba(mocha.surface1.r, mocha.surface1.g, mocha.surface1.b, 0.9) 
+                                            : "transparent"))
+
+                            // ADDED TACTILE SCALE ANIMATION ON HOVER
+                            scale: isHovered && modelData.state !== "active" ? 1.08 : 1.0
+                            Behavior on scale { NumberAnimation { duration: 250; easing.type: Easing.OutBack } }
                             
                             // Safe Instantiation Cascade logic
                             property bool initAnimTrigger: barWindow.startupCascadeFinished
@@ -358,12 +364,14 @@ PanelWindow {
                                 text: modelData.id
                                 font.family: "JetBrains Mono"
                                 font.pixelSize: 14
-                                font.weight: modelData.state === "active" ? Font.Black : Font.Bold
+                                font.weight: modelData.state === "active" ? Font.Black : (modelData.state === "occupied" ? Font.Bold : Font.Medium)
                                 
-                                // PERFECTED TEXT CONTRAST - True black/darkest for active
+                                // IMPROVED TEXT CONTRAST - Pop occupied text to true text color, fade empty out
                                 color: modelData.state === "active" 
                                         ? mocha.crust 
-                                        : (modelData.state === "occupied" ? mocha.text : mocha.overlay0)
+                                        : (isHovered 
+                                            ? mocha.text 
+                                            : (modelData.state === "occupied" ? mocha.text : mocha.overlay0))
                                         
                                 Behavior on color { ColorAnimation { duration: 250 } }
                             }

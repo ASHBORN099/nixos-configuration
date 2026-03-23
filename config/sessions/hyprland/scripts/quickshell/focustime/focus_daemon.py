@@ -24,6 +24,9 @@ DESKTOP_CACHE_NAME = {}
 DESKTOP_CACHE_ICON = {}
 CACHE_BUILT = False
 
+# Explicitly bypass cache lookups for these internal systemic states
+SYSTEM_STATES = {"Desktop", "Locked", "Quickshell", "Unknown"}
+
 def get_xdg_search_dirs():
     search_dirs = []
     xdg_data_home = os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
@@ -66,22 +69,14 @@ def build_desktop_cache():
                                     wmclass = line.split("=", 1)[1].strip().lower()
                         
                         if name:
+                            # Strict matching only: base filename and explicitly declared WMClass
                             base = f[:-8].lower()
-                            
                             DESKTOP_CACHE_NAME[base] = name
                             DESKTOP_CACHE_ICON[base] = icon
                             
-                            DESKTOP_CACHE_NAME[name.lower()] = name
-                            DESKTOP_CACHE_ICON[name.lower()] = icon
-
                             if wmclass:
                                 DESKTOP_CACHE_NAME[wmclass] = name
                                 DESKTOP_CACHE_ICON[wmclass] = icon
-                                
-                            parts = base.split('.')
-                            if len(parts) > 1:
-                                DESKTOP_CACHE_NAME[parts[-1]] = name
-                                DESKTOP_CACHE_ICON[parts[-1]] = icon
                     except Exception:
                         pass
         except Exception:
@@ -89,8 +84,8 @@ def build_desktop_cache():
     CACHE_BUILT = True
 
 def resolve_app_name(app_class, raw_title):
-    if not app_class or app_class == "Unknown":
-        return "Unknown"
+    if not app_class or app_class in SYSTEM_STATES:
+        return app_class if app_class else "Unknown"
         
     build_desktop_cache()
     app_class_lower = app_class.lower()
@@ -102,9 +97,9 @@ def resolve_app_name(app_class, raw_title):
     if base_class in DESKTOP_CACHE_NAME:
         return DESKTOP_CACHE_NAME[base_class]
 
+    # Clean up window title as a last resort
     clean_title = re.sub(r'^\(\d+\)\s*|^\[\d+\]\s*', '', raw_title)
     clean_title = re.sub(r'\s*\(\d+\)$', '', clean_title)
-    
     parts = re.split(r'\s+[-—|]\s+', clean_title)
     name = parts[-1].strip() if len(parts) > 1 else clean_title.strip()
 
@@ -115,7 +110,7 @@ def resolve_app_name(app_class, raw_title):
     return name
 
 def get_app_icon(app_class):
-    if not app_class or app_class == "Unknown":
+    if not app_class or app_class in SYSTEM_STATES:
         return ""
         
     build_desktop_cache()
@@ -161,6 +156,17 @@ def init_db():
             app_class TEXT,
             seconds INTEGER,
             PRIMARY KEY (log_date, interval_idx, app_class)
+        )
+    ''')
+    
+    # New table for precise minute-level peak tracking
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS focus_minutes (
+            log_date TEXT,
+            minute_idx INTEGER,
+            app_class TEXT,
+            seconds INTEGER,
+            PRIMARY KEY (log_date, minute_idx, app_class)
         )
     ''')
     
@@ -275,7 +281,7 @@ def dump_state_to_json(c):
             "percent": round(percentage, 1)
         })
 
-    # --- NEW: Week Apps ---
+    # Weekly Top Apps
     c.execute('''
         SELECT app_class, COALESCE(app_title, app_class), SUM(seconds) as secs 
         FROM focus_log 
@@ -337,7 +343,7 @@ def dump_state_to_json(c):
     except sqlite3.OperationalError:
         pass 
 
-    # --- NEW: Week Heatmap (7x24) ---
+    # Week Heatmap (7x24)
     week_heatmap = [[0]*24 for _ in range(7)]
     try:
         c.execute('''
@@ -354,6 +360,47 @@ def dump_state_to_json(c):
     except sqlite3.OperationalError:
         pass
 
+    # Exact Peak Usage minutes calculation
+    minute_data = [0] * 1440
+    try:
+        c.execute('''
+            SELECT minute_idx, SUM(seconds)
+            FROM focus_minutes
+            WHERE log_date >= ? AND log_date <= ?
+            GROUP BY minute_idx
+        ''', (monday.isoformat(), sunday.isoformat()))
+        for row in c.fetchall():
+            idx, secs = row
+            if 0 <= idx < 1440:
+                minute_data[idx] += secs
+    except sqlite3.OperationalError:
+        pass
+
+    peak_str = "N/A"
+    max_sum = 0
+    best_window = None
+    # Sliding window of 60 mins to find peak cluster
+    for i in range(1440 - 60):
+        w_sum = sum(minute_data[i:i+60])
+        if w_sum > max_sum and w_sum > 0:
+            max_sum = w_sum
+            best_window = (i, i+60)
+
+    if best_window:
+        start_idx, end_idx = best_window
+        # Trim leading zero-activity minutes
+        while start_idx < end_idx and minute_data[start_idx] == 0:
+            start_idx += 1
+        
+        # Trim trailing zero-activity minutes
+        actual_end = end_idx - 1
+        while actual_end > start_idx and minute_data[actual_end] == 0:
+            actual_end -= 1
+            
+        s_h, s_m = divmod(start_idx, 60)
+        e_h, e_m = divmod(actual_end, 60)
+        peak_str = f"{s_h:02d}:{s_m:02d} - {e_h:02d}:{e_m:02d}"
+
     result = {
         "selected_date": target_date.isoformat(),
         "total": total_seconds,
@@ -366,7 +413,8 @@ def dump_state_to_json(c):
         "week": week_data,
         "month": month_data,
         "hourly": hourly_data,
-        "week_heatmap": week_heatmap
+        "week_heatmap": week_heatmap,
+        "peak_usage_str": peak_str
     }
     
     temp_file = STATE_FILE + ".tmp"
@@ -390,11 +438,12 @@ def main():
     while True:
         time.sleep(1)
         
-        if current_app_class and current_app_class not in ["Unknown", "Locked", "Quickshell", ""]:
+        if current_app_class and current_app_class not in [""]:
             today = date.today().isoformat()
             now = datetime.now()
             current_hour = now.hour
             current_interval = (now.hour * 60 + now.minute) // 15
+            current_minute = now.hour * 60 + now.minute
             
             c.execute('''
                 INSERT INTO focus_log (log_date, app_class, seconds, app_title)
@@ -416,6 +465,14 @@ def main():
                 ON CONFLICT(log_date, interval_idx, app_class)
                 DO UPDATE SET seconds = seconds + 1
             ''', (today, current_interval, current_app_class))
+            
+            # Log exact minutes
+            c.execute('''
+                INSERT INTO focus_minutes (log_date, minute_idx, app_class, seconds)
+                VALUES (?, ?, ?, 1)
+                ON CONFLICT(log_date, minute_idx, app_class)
+                DO UPDATE SET seconds = seconds + 1
+            ''', (today, current_minute, current_app_class))
             
             conn.commit()
 
