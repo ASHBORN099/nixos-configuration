@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtCore
 import Qt.labs.folderlistmodel
 import Quickshell
 import Quickshell.Io
@@ -20,11 +21,9 @@ Item {
     property int scrollAccum: 0
     property int scrollThreshold: 300 
 
-    // Internal Intro Animation Property
-    property bool isReady: false
-
     // Filter System Properties
     property string currentFilter: "All"
+    property string _lastFilter: "All"
     property string searchQuery: ""
     property bool isOnlineSearch: false
     property bool isSearchPaused: false
@@ -35,13 +34,19 @@ Item {
     // Download and Status Tracking Properties
     property bool isDownloadingWallpaper: false
     property string currentDownloadName: ""
-    property bool isSearchActive: false
+    
+    // Reactive Status Properties
+    property bool isStartup: localFolderModel.status === FolderListModel.Loading || srcModel.status === FolderListModel.Loading
+    property bool isReady: visible && localFolderModel.status === FolderListModel.Ready
+    property bool isSearchActive: window.currentFilter === "Search" && window.hasSearched && searchFolderModel.status === FolderListModel.Loading
+    
+    // Memory Properties for Search
+    property string lastSearchName: ""
+    property bool isModelChanging: false
+    property bool searchIndexRestored: false
     
     // Lock scrolling/interaction while actively streaming search results.
     property bool isScrollingBlocked: window.currentFilter === "Search" && window.hasSearched && window.isSearchActive && !window.isSearchPaused
-
-    // Startup lock to prevent visual jitter from the notification drawer
-    property bool isStartup: true
     property bool jumpToLastOnFilterChange: false
 
     readonly property var filterData: [
@@ -58,43 +63,54 @@ Item {
         { name: "Search", hex: "", label: "Search" } 
     ]
 
+    // -------------------------------------------------------------------------
+    // PERSISTENT SETTINGS
+    // -------------------------------------------------------------------------
+    Settings {
+        id: searchState
+        category: "QS_WallpaperPicker"
+        property string query: ""
+        property bool searched: false
+        property string lastName: ""
+    }
+
     onIsSearchPausedChanged: {
         Quickshell.execDetached(["bash", "-c", "echo '" + (isSearchPaused ? "pause" : "run") + "' > /tmp/ddg_search_control"]);
     }
 
     // -------------------------------------------------------------------------
-    // RESET & VISIBILITY LOGIC
+    // VISIBILITY LOGIC
     // -------------------------------------------------------------------------
-    function resetSearch() {
-        window.currentFilter = "All";
-        window.hasSearched = false;
-        window.searchQuery = "";
-        window.isSearchPaused = false;
-        window.isDownloadingWallpaper = false;
-        window.isSearchActive = false;
-        if (searchInput) {
-            searchInput.text = "";
-        }
-        Quickshell.execDetached(["bash", "-c", "echo 'stop' > /tmp/ddg_search_control; pkill -f '[g]et_ddg_links.py'; rm -rf '" + decodeURIComponent(window.searchDir.replace("file://", "")) + "'/*"]);
-    }
-
     onVisibleChanged: {
         if (!visible) {
-            resetSearch();
-            window.isReady = false;
+            window.initialFocusSet = false;
+            window.searchIndexRestored = false;
+            
+            if (window.hasSearched) {
+                window.isSearchPaused = true;
+            }
         } else {
-            startupAnimTimer.restart();
+            // Re-apply focus rules when re-opening
+            if (window.currentFilter !== "Search") {
+                window.applyFilters(true);
+            } else if (window.hasSearched) {
+                window.searchIndexRestored = false;
+                window.isSearchPaused = true;
+                window.trySearchFocus();
+                window.syncSearchModel();
+            }
         }
     }
 
     // -------------------------------------------------------------------------
     // NOTIFICATION & LABEL STATE LOGIC
     // -------------------------------------------------------------------------
-    property bool isLoading: folderModel.status === FolderListModel.Loading || 
-                             srcModel.status === FolderListModel.Loading
+    property bool isLoading: localFolderModel.status === FolderListModel.Loading || 
+                             srcModel.status === FolderListModel.Loading ||
+                             (window.currentFilter === "Search" && searchFolderModel.status === FolderListModel.Loading)
 
     property bool showSpinner: window.isDownloadingWallpaper || 
-                               (window.currentFilter === "Search" && window.hasSearched && (window.visibleItemCount === 0 || window.isSearchActive) && !window.isSearchPaused) || 
+                               (window.currentFilter === "Search" && window.hasSearched && !window.isSearchPaused) || 
                                (window.currentFilter !== "Search" && window.isLoading)
 
     property string currentNotification: {
@@ -104,8 +120,8 @@ Item {
             if (!window.hasSearched) return "Type something to search...";
             if (window.isSearchPaused) return "Search Paused";
             if (window.visibleItemCount === 0) return "Searching DDG (FHD+)...";
-            if (window.isSearchActive) return "Generating thumbnails...";
-            return ""; 
+            // If it's not paused and has items, it is actively generating thumbnails
+            return "Generating thumbnails..."; 
         }
 
         if (isLoading) return "Generating thumbnails...";
@@ -117,7 +133,7 @@ Item {
         return window.currentFilter;
     }
     
-    // Block the notification flag during the first 500ms to stop UI shifting
+    // Block the notification flag during initial load to stop UI shifting
     property bool showNotification: !window.isStartup && currentNotification !== ""
 
     function getCleanName(name) {
@@ -142,16 +158,41 @@ Item {
         }
     }
 
+    // Force layouts and positioning *before* setting index to avoid animation conflicts
+    function executeFocusRestore(targetIndex, isSearchRestore, requirePositioning) {
+        let targetModel = window.getModelForFilter(window.currentFilter);
+        
+        if (targetIndex !== -1 && targetIndex < targetModel.count) {
+            window.isModelChanging = true;
+            
+            if (requirePositioning) {
+                view.forceLayout();
+                view.positionViewAtIndex(targetIndex, ListView.Center);
+            }
+            
+            view.currentIndex = targetIndex;
+            
+            if (isSearchRestore) {
+                window.searchIndexRestored = true;
+            }
+            
+            window.isModelChanging = false;
+            window.initialFocusSet = true;
+        } else if (isSearchRestore) {
+            window.searchIndexRestored = true;
+        }
+    }
+
     function tryFocus() {
         if (initialFocusSet) return;
 
-        if (proxyModel.count > 0) {
+        if (localProxyModel.count > 0) {
             let foundIndex = -1;
             let cleanTarget = window.getCleanName(targetWallName);
 
             if (cleanTarget !== "") {
-                for (let i = 0; i < proxyModel.count; i++) {
-                    let fname = proxyModel.get(i).fileName || "";
+                for (let i = 0; i < localProxyModel.count; i++) {
+                    let fname = localProxyModel.get(i).fileName || "";
                     if (window.getCleanName(fname) === cleanTarget) {
                         foundIndex = i;
                         break;
@@ -160,20 +201,46 @@ Item {
             }
 
             let finalIndex = foundIndex !== -1 ? foundIndex : 0;
-            view.currentIndex = finalIndex;
-            view.positionViewAtIndex(finalIndex, ListView.Center);
-            initialFocusSet = true;
+            window.executeFocusRestore(finalIndex, false, true);
+        }
+    }
+    
+    function trySearchFocus() {
+        if (window.searchIndexRestored || searchProxyModel.count === 0) return;
+
+        if (window.lastSearchName === "") {
+             window.searchIndexRestored = true;
+             return;
+        }
+
+        for (let i = 0; i < searchProxyModel.count; i++) {
+            let fname = searchProxyModel.get(i).fileName || "";
+            if (fname === window.lastSearchName) {
+                window.executeFocusRestore(i, true, true);
+                return;
+            }
+        }
+        
+        if (searchFolderModel.status === FolderListModel.Ready && searchProxyModel.count === searchFolderModel.count) {
+             window.searchIndexRestored = true; 
         }
     }
 
+    // Guarantee the exact model is queried regardless of reactive binding propagation delay
+    function getModelForFilter(filter) {
+        return filter === "Search" ? searchProxyModel : localProxyModel;
+    }
+
     function updateVisibleCount() {
-        if (!proxyModel || proxyModel.count === 0) {
+        let targetModel = window.getModelForFilter(window.currentFilter);
+        
+        if (!targetModel || targetModel.count === 0) {
             window.visibleItemCount = 0;
             return;
         }
         let count = 0;
-        for (let i = 0; i < proxyModel.count; i++) {
-            let fname = proxyModel.get(i).fileName || "";
+        for (let i = 0; i < targetModel.count; i++) {
+            let fname = targetModel.get(i).fileName || "";
             let isVid = fname.startsWith("000_");
             if (checkItemMatchesFilter(fname, isVid, window.cacheVersion, window.currentFilter)) {
                 count++;
@@ -185,15 +252,28 @@ Item {
     function triggerOnlineSearch() {
         if (searchInput.text.trim() === "") return;
         
-        // Force reset the visual state and model before the search begins
-        proxyModel.clear();
-        view.currentIndex = 0;
-        view.positionViewAtIndex(0, ListView.Center);
+        window.isModelChanging = true;
+        searchProxyModel.clear();
+        window.lastSearchName = "";
+        searchState.lastName = "";
+        
+        if (window.currentFilter === "Search") {
+            view.currentIndex = 0;
+            view.positionViewAtIndex(0, ListView.Center);
+        }
+        window.isModelChanging = false;
 
+        window.searchIndexRestored = true; 
         window.isOnlineSearch = true;
         window.hasSearched = true;
+        
+        // Force count to 0 instantly to prevent "Generating thumbnails..." from flashing
+        window.visibleItemCount = 0; 
+        
+        searchState.searched = true;
+        searchState.query = searchInput.text.trim();
+        
         window.isSearchPaused = false;
-        window.isSearchActive = true;
         window.searchQuery = searchInput.text.trim();
         
         let rawSearchDir = decodeURIComponent(window.searchDir.replace(/^file:\/\//, ""));
@@ -206,8 +286,15 @@ Item {
             
             echo "Gracefully stopping old processes..."
             echo 'stop' > /tmp/ddg_search_control
+            
+            # Safely kill old bash scripts without killing this wrapper
+            for p in $(pgrep -f ddg_search.sh); do
+                if [ "$p" != "$$" ] && [ "$p" != "$BASHPID" ]; then
+                    kill -9 $p 2>/dev/null || true
+                fi
+            done
             pkill -f "[g]et_ddg_links.py" || true
-            sleep 0.5 
+            sleep 0.2 
             
             echo "Clearing old cache..."
             rm -rf "${rawSearchDir}"/* || true
@@ -241,32 +328,10 @@ Item {
     readonly property int spacing: 10
     readonly property real skewFactor: -0.35
 
-    // -------------------------------------------------------------------------
-    // TIMERS & SCROLL THROTTLE
-    // -------------------------------------------------------------------------
-    Timer {
-        id: startupTimer
-        interval: 500 
-        running: true
-        onTriggered: window.isStartup = false
-    }
-
-    // Handles the staggered inward layout animation
-    Timer {
-        id: startupAnimTimer
-        interval: 100
-        onTriggered: window.isReady = true
-    }
-
+    // Mouse input UX throttle (Not a layout logic timer)
     Timer {
         id: scrollThrottle
         interval: 150 
-    }
-
-    Timer {
-        id: searchActiveTimer
-        interval: 3000
-        onTriggered: window.isSearchActive = false
     }
 
     // -------------------------------------------------------------------------
@@ -413,15 +478,15 @@ Item {
     }
 
     function stepToNextValidIndex(direction) {
-        if (proxyModel.count === 0) return;
+        let targetModel = window.getModelForFilter(window.currentFilter);
+        if (!targetModel || targetModel.count === 0) return;
         
         let start = view.currentIndex;
         let found = -1;
 
-        // Try to find the next item in the CURRENT filter
         if (direction === 1) {
-            for (let i = start + 1; i < proxyModel.count; i++) {
-                let fname = proxyModel.get(i).fileName || "";
+            for (let i = start + 1; i < targetModel.count; i++) {
+                let fname = targetModel.get(i).fileName || "";
                 let isVid = fname.startsWith("000_");
                 if (checkItemMatchesFilter(fname, isVid, window.cacheVersion, window.currentFilter)) {
                     found = i; break;
@@ -429,7 +494,7 @@ Item {
             }
         } else {
             for (let i = start - 1; i >= 0; i--) {
-                let fname = proxyModel.get(i).fileName || "";
+                let fname = targetModel.get(i).fileName || "";
                 let isVid = fname.startsWith("000_");
                 if (checkItemMatchesFilter(fname, isVid, window.cacheVersion, window.currentFilter)) {
                     found = i; break;
@@ -442,16 +507,14 @@ Item {
             return;
         }
 
-        // Boundary hit: Transition to next tab (excluding search)
         let filterOrder = ["All", "Video", "Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Pink", "Monochrome"];
         let currentFilterIdx = filterOrder.indexOf(window.currentFilter);
 
-        // If currently in Search, maintain old wrap logic
         if (currentFilterIdx === -1) {
             let current = start;
-            for (let i = 0; i < proxyModel.count; i++) {
-                current = (current + direction + proxyModel.count) % proxyModel.count;
-                let fname = proxyModel.get(current).fileName || "";
+            for (let i = 0; i < targetModel.count; i++) {
+                current = (current + direction + targetModel.count) % targetModel.count;
+                let fname = targetModel.get(current).fileName || "";
                 let isVid = fname.startsWith("000_");
                 
                 if (checkItemMatchesFilter(fname, isVid, window.cacheVersion, window.currentFilter)) {
@@ -464,7 +527,6 @@ Item {
 
         let nextFilterIdx = currentFilterIdx + direction;
 
-        // Boundary protections for the very first/last possible groups
         if (nextFilterIdx >= 0 && nextFilterIdx < filterOrder.length) {
             window.jumpToLastOnFilterChange = (direction === -1);
             window.currentFilter = filterOrder[nextFilterIdx];
@@ -486,16 +548,26 @@ Item {
         }
     }
 
-    function applyFilters() {
-        if (proxyModel.count === 0) return;
+    function applyFilters(forceSnap) {
+        let targetModel = window.getModelForFilter(window.currentFilter);
+        
+        if (!targetModel || targetModel.count === 0) {
+            window.updateVisibleCount();
+            return;
+        }
 
-        let targetIndex = -1;
+        if (window.currentFilter === "Search") {
+            window.updateVisibleCount();
+            return; 
+        }
+
         let firstValidIndex = -1;
         let lastValidIndex = -1;
         let cleanTarget = window.getCleanName(window.targetWallName);
+        let targetIndex = -1;
 
-        for (let i = 0; i < proxyModel.count; i++) {
-            let fname = proxyModel.get(i).fileName || "";
+        for (let i = 0; i < targetModel.count; i++) {
+            let fname = targetModel.get(i).fileName || "";
             let isVid = fname.startsWith("000_");
             
             if (checkItemMatchesFilter(fname, isVid, window.cacheVersion, window.currentFilter)) {
@@ -513,30 +585,47 @@ Item {
         let indexToFocus = -1;
 
         if (targetIndex !== -1) {
-            indexToFocus = targetIndex;
+             indexToFocus = targetIndex;
         } else if (window.jumpToLastOnFilterChange && lastValidIndex !== -1) {
             indexToFocus = lastValidIndex;
         } else if (firstValidIndex !== -1) {
             indexToFocus = firstValidIndex;
         }
 
-        // Reset transition flag
         window.jumpToLastOnFilterChange = false;
         
         if (indexToFocus !== -1) {
-            view.currentIndex = indexToFocus;
+            window.executeFocusRestore(indexToFocus, false, forceSnap === true);
         }
         
         window.updateVisibleCount();
     }
 
     onCurrentFilterChanged: {
-        if (window.currentFilter === "Search") {
-            searchInput.forceActiveFocus();
-        } else {
-            view.forceActiveFocus();
+        window.isModelChanging = true; 
+        let returningFromSearch = (window._lastFilter === "Search" && window.currentFilter !== "Search");
+        window._lastFilter = window.currentFilter;
+        
+        // Erase search memory status instantly when we abandon the tab so it triggers fresh when we return
+        if (returningFromSearch) {
+             window.searchIndexRestored = false;
         }
-        window.applyFilters();
+        
+        // Defer routing logic to ensure the ListView's internal model pointer has fully swapped
+        // We keep isModelChanging true across the closure to protect from ListView default index resets
+        Qt.callLater(() => {
+            if (window.currentFilter === "Search") {
+                searchInput.forceActiveFocus();
+                if (window.hasSearched) {
+                    window.searchIndexRestored = false; 
+                    window.trySearchFocus();
+                }
+            } else {
+                view.forceActiveFocus();
+                window.applyFilters(returningFromSearch);
+            }
+            window.isModelChanging = false;
+        });
     }
 
     // -------------------------------------------------------------------------
@@ -564,20 +653,107 @@ Item {
     Shortcut { sequence: "Backtab"; onActivated: window.cycleFilter(-1) }
 
     // -------------------------------------------------------------------------
-    // CONTENT
+    // CONTENT & DUAL MODELS
     // -------------------------------------------------------------------------
+    ListModel { id: localProxyModel }
+    ListModel { id: searchProxyModel }
     
-    // The Proxy ListModel allows us to cleanly .append() items without the 
-    // visual jitter caused by Native FileSystem Model Resets.
-    ListModel {
-        id: proxyModel
+    readonly property var activeModel: window.currentFilter === "Search" ? searchProxyModel : localProxyModel
+
+    // Local Wallpapers Model Logic
+    FolderListModel {
+        id: localFolderModel
+        folder: window.thumbDir
+        nameFilters: ["*.jpg", "*.jpeg", "*.png", "*.webp", "*.gif", "*.mp4", "*.mkv", "*.mov", "*.webm"]
+        showDirs: false
+        sortField: FolderListModel.Name 
+        
+        onCountChanged: window.syncLocalModel()
+        onStatusChanged: { if (status === FolderListModel.Ready) window.syncLocalModel() }
+    }
+
+    function syncLocalModel() {
+        let startIdx = localProxyModel.count;
+        let endIdx = localFolderModel.count;
+        
+        if (endIdx < startIdx) {
+            window.isModelChanging = true;
+            localProxyModel.clear();
+            startIdx = 0;
+            window.isModelChanging = false;
+        }
+
+        for (let i = startIdx; i < endIdx; i++) {
+            let fn = localFolderModel.get(i, "fileName");
+            let fu = localFolderModel.get(i, "fileUrl");
+            if (fn !== undefined) {
+                localProxyModel.append({ "fileName": fn, "fileUrl": String(fu) });
+            }
+        }
+
+        if (window.currentFilter !== "Search") window.updateVisibleCount();
+        
+        if (!window.initialFocusSet && window.currentFilter !== "Search" && localProxyModel.count > 0) {
+            window.tryFocus();
+        }
+    }
+
+    // Search Thumbnails Model Logic
+    FolderListModel {
+        id: searchFolderModel
+        folder: window.searchDir
+        nameFilters: ["*.jpg", "*.jpeg", "*.png", "*.webp", "*.gif", "*.mp4", "*.mkv", "*.mov", "*.webm"]
+        showDirs: false
+        sortField: FolderListModel.Name 
+        
+        onFolderChanged: {
+            window.isModelChanging = true;
+            searchProxyModel.clear()
+            window.isModelChanging = false;
+        }
+        
+        onCountChanged: window.syncSearchModel()
+        onStatusChanged: { if (status === FolderListModel.Ready) window.syncSearchModel() }
+    }
+
+    function syncSearchModel() {
+        let startIdx = searchProxyModel.count;
+        let endIdx = searchFolderModel.count;
+        
+        if (endIdx < startIdx) {
+            window.isModelChanging = true;
+            searchProxyModel.clear();
+            startIdx = 0;
+            window.isModelChanging = false;
+        }
+
+        for (let i = startIdx; i < endIdx; i++) {
+            let fn = searchFolderModel.get(i, "fileName");
+            let fu = searchFolderModel.get(i, "fileUrl");
+            if (fn !== undefined) {
+                searchProxyModel.append({ "fileName": fn, "fileUrl": String(fu) });
+            }
+        }
+
+        if (window.currentFilter === "Search") window.updateVisibleCount();
+
+        if (window.currentFilter === "Search" && window.hasSearched) {
+            if (!window.searchIndexRestored) {
+                window.trySearchFocus();
+            }
+            
+            if (window.isScrollingBlocked && startIdx === 0 && searchProxyModel.count > 0 && window.lastSearchName === "") {
+                view.forceLayout();
+                view.currentIndex = 0;
+                view.positionViewAtIndex(0, ListView.Center);
+            }
+        }
     }
 
     ListView {
         id: view
         anchors.fill: parent
         
-        // This is where the elegant spatial layout animation happens
         opacity: window.isReady ? 1.0 : 0.0
         anchors.margins: window.isReady ? 0 : 40 
         
@@ -598,99 +774,37 @@ Item {
         highlightMoveDuration: window.initialFocusSet ? 500 : 0
         focus: true
         
-        // Proxy model allows these to trigger gracefully on every appended item
+        onCurrentIndexChanged: {
+            // Guard: completely ignore index resets if the view's internal model doesn't match the search state yet
+            if (view.model !== searchProxyModel || window.currentFilter !== "Search") return;
+            
+            if (!window.isModelChanging && window.hasSearched && window.searchIndexRestored) {
+                if (currentIndex >= 0 && currentIndex < searchProxyModel.count) {
+                    let fname = searchProxyModel.get(currentIndex).fileName;
+                    if (fname !== undefined && fname !== "") {
+                        window.lastSearchName = String(fname);
+                        searchState.lastName = String(fname);
+                    }
+                }
+            }
+        }
+        
         add: Transition {
+            enabled: window.initialFocusSet
             ParallelAnimation {
                 NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 400; easing.type: Easing.OutCubic }
                 NumberAnimation { property: "scale"; from: 0.5; to: 1; duration: 400; easing.type: Easing.OutBack }
             }
         }
         addDisplaced: Transition {
+            enabled: window.initialFocusSet
             NumberAnimation { property: "x"; duration: 400; easing.type: Easing.OutCubic }
         }
 
         header: Item { width: Math.max(0, (view.width / 2) - ((window.itemWidth * 1.5) / 2)) }
         footer: Item { width: Math.max(0, (view.width / 2) - ((window.itemWidth * 1.5) / 2)) }
 
-        model: proxyModel
-
-        // Debouncer acts as the bridge between the chaotic file system and the smooth UI
-        Timer {
-            id: countChangeDebouncer
-            interval: 100 
-            onTriggered: {
-                if (folderModel.status !== FolderListModel.Ready && folderModel.count === 0) return;
-
-                let startIdx = proxyModel.count;
-                let endIdx = folderModel.count;
-                
-                // If folder emptied out (e.g. wiped search or swapped folders)
-                if (endIdx < startIdx) {
-                    proxyModel.clear();
-                    startIdx = 0;
-                }
-
-                // Smoothly append only the new items
-                for (let i = startIdx; i < endIdx; i++) {
-                    let fn = folderModel.get(i, "fileName");
-                    let fu = folderModel.get(i, "fileUrl");
-                    if (fn !== undefined) {
-                        proxyModel.append({ "fileName": fn, "fileUrl": String(fu) });
-                    }
-                }
-
-                window.updateVisibleCount();
-
-                // Ensure the view snaps to the first search item immediately once it loads
-                if (window.isScrollingBlocked && startIdx === 0 && proxyModel.count > 0) {
-                    view.currentIndex = 0;
-                    view.positionViewAtIndex(0, ListView.Center);
-                }
-                
-                if (!window.isScrollingBlocked) {
-                    window.tryFocus();
-                    if (window.initialFocusSet && window.targetWallName !== "") {
-                        let cleanTarget = window.getCleanName(window.targetWallName);
-                        for (let i = 0; i < proxyModel.count; i++) {
-                            let fname = proxyModel.get(i).fileName || "";
-                            if (window.getCleanName(fname) === cleanTarget) {
-                                view.currentIndex = i;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Native File System Watcher (Hidden logic layer)
-        FolderListModel {
-            id: folderModel
-            
-            folder: window.currentFilter === "Search" ? window.searchDir : window.thumbDir
-            nameFilters: ["*.jpg", "*.jpeg", "*.png", "*.webp", "*.gif", "*.mp4", "*.mkv", "*.mov", "*.webm"]
-            showDirs: false
-            sortField: FolderListModel.Name 
-            
-            // Instantly wipe the visual proxy list if we switch folders so it doesn't cross-contaminate
-            onFolderChanged: {
-                proxyModel.clear()
-                view.currentIndex = 0
-                view.positionViewAtIndex(0, ListView.Center)
-            }
-            
-            onCountChanged: {
-                if (window.currentFilter === "Search" && window.hasSearched) {
-                    window.isSearchActive = true;
-                    searchActiveTimer.restart(); 
-                }
-                countChangeDebouncer.restart();
-            }
-            
-            onStatusChanged: {
-                if (status === FolderListModel.Ready) countChangeDebouncer.restart();
-            }
-        }
+        model: window.activeModel
 
         MouseArea {
             anchors.fill: parent
@@ -728,11 +842,8 @@ Item {
             
             readonly property string safeFileName: fileName !== undefined ? String(fileName) : ""
             
-            // 1. Logical selection (still fully locked when scrolling is blocked)
             readonly property bool isCurrent: ListView.isCurrentItem && !window.isScrollingBlocked
-            // 2. Fake visual selection (forces the very first item to look big while searching)
             readonly property bool isFakeSelected: window.isScrollingBlocked && index === 0
-            // 3. Combined property that drives ONLY the visual size, opacity, and layering
             readonly property bool isVisuallyEnlarged: isCurrent || isFakeSelected
             
             readonly property bool isVideo: safeFileName.startsWith("000_")
@@ -790,7 +901,6 @@ Item {
                             if [ -n "$URL" ]; then
                                 curl -s -L -A "Mozilla/5.0" "$URL" -o "${destFile}.tmp"
                                 
-                                # Convert WebP to JPG on the fly to match the extension and ensure Qt compatibility
                                 if file "${destFile}.tmp" | grep -iq "webp"; then
                                     magick "${destFile}.tmp" "${destFile}"
                                     rm -f "${destFile}.tmp"
@@ -827,7 +937,6 @@ Item {
 
             MouseArea {
                 anchors.fill: parent
-                // The actual logic is still strictly protected by isScrollingBlocked
                 enabled: delegateRoot.matchesFilter && !window.isScrollingBlocked
                 onClicked: {
                     view.currentIndex = index
@@ -837,7 +946,6 @@ Item {
 
             Item {
                 anchors.centerIn: parent
-                // Offsets the trigonometric geometric shift when the height expands, balancing the padding!
                 anchors.horizontalCenterOffset: ((window.itemHeight - height) / 2) * window.skewFactor
                 
                 width: parent.width > 0 ? parent.width * (targetWidth / (targetWidth + window.spacing)) : 0
@@ -919,7 +1027,6 @@ Item {
         id: filterBarBackground
         anchors.top: parent.top
         
-        // This makes the filter bar elegantly drop down from above
         anchors.topMargin: window.isReady ? 40 : -100 
         opacity: window.isReady ? 1.0 : 0.0
         Behavior on anchors.topMargin { NumberAnimation { duration: 600; easing.type: Easing.OutExpo } }
@@ -929,9 +1036,8 @@ Item {
         z: 20
         height: 56
         width: filterRow.width + 24
-        radius: 14 // Match topbar outer radius
+        radius: 14 
         
-        // Boosted integration with Matugen colors
         color: Qt.rgba(_theme.mantle.r, _theme.mantle.g, _theme.mantle.b, 0.90)
         border.color: Qt.rgba(_theme.surface2.r, _theme.surface2.g, _theme.surface2.b, 0.8)
         border.width: 1
@@ -945,19 +1051,16 @@ Item {
                 id: notifDrawer
                 height: 44
                 property real paddingLeft: window.showSpinner ? 40 : 16
-                // Added slightly more right padding for a balanced pill shape
                 property real targetWidth: window.showNotification ? Math.min(notifTextDrawer.implicitWidth + paddingLeft + 20, 300) : 0
                 width: targetWidth
                 visible: width > 0.1 
-                radius: 10 // Match topbar inner pill radius
+                radius: 10 
                 clip: true
                 
-                // Matugen background pop for the notification drawer
                 color: window.showNotification ? Qt.rgba(_theme.surface2.r, _theme.surface2.g, _theme.surface2.b, 0.5) : "transparent"
                 border.color: window.showNotification ? Qt.rgba(_theme.surface1.r, _theme.surface1.g, _theme.surface1.b, 0.8) : "transparent"
                 border.width: 1
 
-                // Springy outward animation
                 Behavior on width { 
                     NumberAnimation { duration: 600; easing.type: Easing.OutBack; easing.overshoot: 0.5 } 
                 }
@@ -1031,12 +1134,11 @@ Item {
                     
                     Rectangle {
                         anchors.fill: parent
-                        radius: 10 // Match topbar inner pill radius
+                        radius: 10 
                         color: modelData.hex === "" 
                                 ? (window.currentFilter === modelData.name ? _theme.surface2 : "transparent") 
                                 : modelData.hex
                         
-                        // Improved Matugen border handling for inactive items
                         border.color: window.currentFilter === modelData.name ? _theme.text : Qt.rgba(_theme.surface1.r, _theme.surface1.g, _theme.surface1.b, 0.6)
                         border.width: window.currentFilter === modelData.name ? 2 : 1
                         scale: window.currentFilter === modelData.name ? 1.15 : (filterMouse.containsMouse ? 1.08 : 1.0)
@@ -1110,7 +1212,7 @@ Item {
                 visible: window.currentFilter === "Search" && window.hasSearched
                 width: visible ? 44 : 0
                 height: 44
-                radius: 10 // Match topbar inner pill radius
+                radius: 10 
                 clip: true
                 color: window.isSearchPaused ? _theme.surface2 : "transparent"
                 border.color: window.isSearchPaused ? _theme.text : Qt.rgba(_theme.surface1.r, _theme.surface1.g, _theme.surface1.b, 0.6)
@@ -1158,10 +1260,9 @@ Item {
                 id: searchBox
                 height: 44
                 width: window.currentFilter === "Search" ? 360 : 44 
-                radius: 10 // Match topbar inner pill radius
+                radius: 10 
                 clip: true
                 
-                // Matugen coloring applied to the search pill
                 color: window.currentFilter === "Search" ? Qt.rgba(_theme.surface2.r, _theme.surface2.g, _theme.surface2.b, 0.8) : "transparent"
                 border.color: window.currentFilter === "Search" ? Qt.rgba(_theme.text.r, _theme.text.g, _theme.text.b, 0.5) : Qt.rgba(_theme.surface1.r, _theme.surface1.g, _theme.surface1.b, 0.6)
                 border.width: window.currentFilter === "Search" ? 2 : 1
@@ -1226,8 +1327,9 @@ Item {
                     font.pixelSize: 16 
                     clip: true
                     
-                    onTextChanged: {
+                    onTextEdited: {
                         window.hasSearched = false;
+                        searchState.searched = false;
                     }
                     
                     onAccepted: {
@@ -1241,7 +1343,7 @@ Item {
                     id: submitBtn
                     width: 32
                     height: 32
-                    radius: 8 // Match topbar deepest nested button radius (like media art)
+                    radius: 8 
                     anchors.right: parent.right
                     anchors.rightMargin: 8
                     anchors.verticalCenter: parent.verticalCenter
@@ -1295,13 +1397,29 @@ Item {
 
     Component.onCompleted: {
         Quickshell.execDetached(["bash", "-c", "mkdir -p '" + decodeURIComponent(window.searchDir.replace("file://", "")) + "'"]);
+        
+        if (searchState.searched) {
+            searchInput.text = searchState.query;
+            window.searchQuery = searchState.query;
+            window.hasSearched = true;
+            window.lastSearchName = searchState.lastName;
+            window.isSearchPaused = true; 
+        }
+
         view.forceActiveFocus();
         window.processMarkers();
         window.triggerColorExtraction();
-        startupAnimTimer.start();
     }
 
     Component.onDestruction: {
-        resetSearch();
+        if (window.hasSearched) {
+            searchState.query = searchInput.text;
+            searchState.searched = window.hasSearched;
+            searchState.lastName = window.lastSearchName;
+            
+            Quickshell.execDetached(["bash", "-c", "echo 'pause' > /tmp/ddg_search_control"]);
+        } else {
+            Quickshell.execDetached(["bash", "-c", "echo 'stop' > /tmp/ddg_search_control; for p in $(pgrep -f ddg_search.sh); do if [ \"$p\" != \"$$\" ] && [ \"$p\" != \"$BASHPID\" ]; then kill -9 $p 2>/dev/null || true; fi; done; pkill -f '[g]et_ddg_links.py'"]);
+        }
     }
 }
