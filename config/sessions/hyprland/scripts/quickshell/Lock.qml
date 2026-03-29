@@ -77,7 +77,7 @@ ShellRoot {
 
     Process {
         id: reloadProcess
-        command: ["hyprctl", "reload"]
+        command: ["systemctl", "reboot"]
     }
 
     WlSessionLock {
@@ -990,7 +990,7 @@ ShellRoot {
                                 anchors.fill: parent; anchors.leftMargin: 16; anchors.rightMargin: 16; spacing: 0
                                 Text { text: "󰜉"; font.family: "Iosevka Nerd Font"; font.pixelSize: 18; color: ma1.containsMouse ? root.blue : Qt.rgba(root.blue.r, root.blue.g, root.blue.b, 0.6); Behavior on color { ColorAnimation { duration: 200 } } }
                                 Item { Layout.fillWidth: true }
-                                Text { text: "Reload"; font.family: "JetBrains Mono"; font.pixelSize: 15; font.weight: Font.Medium; color: ma1.containsMouse ? root.blue : Qt.rgba(root.blue.r, root.blue.g, root.blue.b, 0.6); Behavior on color { ColorAnimation { duration: 200 } } }
+                                Text { text: "Reboot"; font.family: "JetBrains Mono"; font.pixelSize: 15; font.weight: Font.Medium; color: ma1.containsMouse ? root.blue : Qt.rgba(root.blue.r, root.blue.g, root.blue.b, 0.6); Behavior on color { ColorAnimation { duration: 200 } } }
                             }
                             MouseArea { 
                                 id: ma1; anchors.fill: parent; hoverEnabled: true;
@@ -1182,47 +1182,53 @@ ShellRoot {
                         
                         // 1. Centerpiece: Orb appears while instantly snapping the lock shut
                         ParallelAnimation {
-                            // Orb body
+                            // Orb body (-50ms)
                             NumberAnimation { target: introLockOrb; property: "scale"; from: 0.0; to: 1.0; duration: 300; easing.type: Easing.OutCubic }
                             NumberAnimation { target: introLockOrb; property: "opacity"; from: 0.0; to: 1.0; duration: 200; easing.type: Easing.OutCubic }
                             
-                            // Rings expanding outwards
-                            NumberAnimation { target: ring1; property: "scale"; from: 0.8; to: 1.25; duration: 300; easing.type: Easing.OutCubic }
-                            NumberAnimation { target: ring1; property: "opacity"; from: 0.6; to: 0.0; duration: 300; easing.type: Easing.OutCubic }
+                            // Rings expanding outwards (-50ms)
+                            NumberAnimation { target: ring1; property: "scale"; from: 0.8; to: 1.25; duration: 250; easing.type: Easing.OutCubic }
+                            NumberAnimation { target: ring1; property: "opacity"; from: 0.6; to: 0.0; duration: 250; easing.type: Easing.OutCubic }
                             
-                            NumberAnimation { target: ring2; property: "scale"; from: 0.8; to: 1.4; duration: 350; easing.type: Easing.OutCubic }
-                            NumberAnimation { target: ring2; property: "opacity"; from: 0.4; to: 0.0; duration: 350; easing.type: Easing.OutCubic }
+                            NumberAnimation { target: ring2; property: "scale"; from: 0.8; to: 1.4; duration: 300; easing.type: Easing.OutCubic }
+                            NumberAnimation { target: ring2; property: "opacity"; from: 0.4; to: 0.0; duration: 300; easing.type: Easing.OutCubic }
 
-                            NumberAnimation { target: ring3; property: "scale"; from: 0.5; to: 1.5; duration: 400; easing.type: Easing.OutCubic }
-                            NumberAnimation { target: ring3; property: "opacity"; from: 0.3; to: 0.0; duration: 400; easing.type: Easing.OutCubic }
+                            NumberAnimation { target: ring3; property: "scale"; from: 0.5; to: 1.5; duration: 350; easing.type: Easing.OutCubic }
+                            NumberAnimation { target: ring3; property: "opacity"; from: 0.3; to: 0.0; duration: 350; easing.type: Easing.OutCubic }
                             
-                            // The Lock Transition (Instant & Beautiful "Snapping" effect)
+                            // The Lock Transition (-50ms and added heavy bump)
                             SequentialAnimation {
-                                PauseAnimation { duration: 200 } // Wait for the orb to fully pop in first
+                                PauseAnimation { duration: 300 } // Wait for the orb to fully pop in
                                 ParallelAnimation {
                                     // Unlocked icon shrinks and fades
-                                    NumberAnimation { target: introIconUnlocked; property: "scale"; from: 1.0; to: 0.5; duration: 150; easing.type: Easing.InCubic }
-                                    NumberAnimation { target: introIconUnlocked; property: "opacity"; from: 1.0; to: 0.0; duration: 100 }
+                                    NumberAnimation { target: introIconUnlocked; property: "scale"; from: 1.0; to: 0.5; duration: 100; easing.type: Easing.InCubic }
+                                    NumberAnimation { target: introIconUnlocked; property: "opacity"; from: 1.0; to: 0.0; duration: 50 }
                                     
                                     // Locked icon punches in with a satisfying snap
-                                    NumberAnimation { target: introIconLocked; property: "scale"; from: 1.6; to: 1.0; duration: 250; easing.type: Easing.OutBack }
-                                    NumberAnimation { target: introIconLocked; property: "opacity"; from: 0.0; to: 1.0; duration: 150 }
+                                    NumberAnimation { target: introIconLocked; property: "scale"; from: 1.6; to: 1.0; duration: 200; easing.type: Easing.OutBack }
+                                    NumberAnimation { target: introIconLocked; property: "opacity"; from: 0.0; to: 1.0; duration: 100 }
+                                    
+                                    // NEW: Heavy subtle thud on the entire orb as it locks
+                                    SequentialAnimation {
+                                        NumberAnimation { target: introLockOrb; property: "anchors.verticalCenterOffset"; from: 0; to: 3; duration: 40; easing.type: Easing.OutQuad }
+                                        NumberAnimation { target: introLockOrb; property: "anchors.verticalCenterOffset"; from: 3; to: 0; duration: 120; easing.type: Easing.OutBack }
+                                    }
                                 }
                             }
                         }
                         
                         // 2. Brief moment to register the lock is closed
-                        PauseAnimation { duration: 100 }
+                        PauseAnimation { duration: 50 }
 
-                        // 3. Reveal Desktop smoothly
+                        // 3. Reveal Desktop smoothly (Accelerated to 100ms)
                         SequentialAnimation {
                             ParallelAnimation {
-                                NumberAnimation { target: introLockOrb; property: "scale"; to: 1.8; duration: 250; easing.type: Easing.InCubic }
-                                NumberAnimation { target: introOverlay; property: "opacity"; to: 0.0; duration: 250; easing.type: Easing.InCubic }
+                                NumberAnimation { target: introLockOrb; property: "scale"; to: 1.8; duration: 100; easing.type: Easing.InCubic }
+                                NumberAnimation { target: introOverlay; property: "opacity"; to: 0.0; duration: 100; easing.type: Easing.InCubic }
                             }
                             
-                            // Clock and desktop fade in smoothly
-                            NumberAnimation { target: screenRoot; property: "introState"; from: 0.0; to: 1.0; duration: 250; easing.type: Easing.OutCubic }
+                            // Clock and desktop fade in extremely fast
+                            NumberAnimation { target: screenRoot; property: "introState"; from: 0.0; to: 1.0; duration: 100; easing.type: Easing.OutCubic }
                         }
 
                         PropertyAction { target: screenRoot; property: "isPlayingIntro"; value: false }
