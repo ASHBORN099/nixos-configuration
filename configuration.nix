@@ -65,6 +65,8 @@
 
   environment.pathsToLink = [ "/share/gsettings-schemas" ];
 
+  documentation.doc.enable = false;
+
   # User accounts and security
   users.users.ilyamiro = {
     isNormalUser = true;
