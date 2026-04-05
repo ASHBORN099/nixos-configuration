@@ -16,6 +16,7 @@
   # System packages
   environment.systemPackages = with pkgs; [
     wget 
+    android-tools
     taskwarrior3
     file
     git
@@ -96,8 +97,6 @@
   }; 
   # Program configurations
   programs.zsh.enable = true;
-
-  programs.adb.enable = true;
 
   # Install firefox.
   programs.firefox.enable = true;
