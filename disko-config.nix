@@ -7,7 +7,6 @@
         content = {
           type = "gpt";
           partitions = {
-            # Boot Partition (Standard 512MB for UEFI)
             ESP = {
               size = "512M";
               type = "EF00";
@@ -17,7 +16,6 @@
                 mountpoint = "/boot";
               };
             };
-            # Root Partition (Remaining Space)
             root = {
               size = "100%";
               content = {
