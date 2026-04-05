@@ -41,7 +41,7 @@
     p7zip
     papers
     fastfetch
-    jetbrains.idea-community
+    # jetbrains.idea
     quickshell
     gnome-shell-extensions
     grim
