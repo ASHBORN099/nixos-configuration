@@ -8,7 +8,7 @@
   # Imports
   imports =
     [ # Include the results of the hardware scan.
-      ./hardware-configuration.nix
+      ./hosts/default/hardware-configuration.nix
     ];
 
   home-manager.backupFileExtension = "backup";
