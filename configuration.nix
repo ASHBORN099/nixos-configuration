@@ -9,7 +9,6 @@
   imports =
     [ # Include the results of the hardware scan.
       ./hardware-configuration.nix
-      <home-manager/nixos>
     ];
 
   home-manager.backupFileExtension = "backup";
@@ -115,12 +114,12 @@
   programs.gamemode.enable = true;
 
   # Home manager
-  home-manager.useGlobalPkgs = true;
-  home-manager.useUserPackages = true; 
+  # home-manager.useGlobalPkgs = true;
+  # home-manager.useUserPackages = true; 
   
-  home-manager.users.ilyamiro = {
-    imports = [ ./home.nix ];
-  };
+  # home-manager.users.ilyamiro = {
+  #  imports = [ ./home.nix ];
+  # };
 
   # Desktop environment, window managers and theme
   services.xserver.enable = true;

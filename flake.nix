@@ -3,7 +3,7 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    # WE ARE ADDING THIS LINE:
+    # CRITICAL: We are adding Home Manager as a direct input
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
   };
@@ -15,13 +15,13 @@
       modules = [
         ./configuration.nix
         ./hosts/default/hardware-configuration.nix
-        # AND THIS LINE TO CONNECT HOME-MANAGER:
+        # Connect Home Manager to the NixOS module system
         home-manager.nixosModules.home-manager
         {
           home-manager.useGlobalPkgs = true;
           home-manager.useUserPackages = true;
-          # Change 'tester' to your username if you aren't using the script's default
-          home-manager.users.tester = import ./home.nix;
+          # Ensure this matches your username in configuration.nix
+          home-manager.users.ilyamiro = import ./home.nix;
         }
       ];
     };
