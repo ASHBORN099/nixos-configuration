@@ -269,7 +269,7 @@
   boot.loader.efi.canTouchEfiVariables = true;
 
   # Kernel Packages and Optimization
-  boot.kernelPackages = pkgs.linuxPackages_latest-libc;
+  boot.kernelPackages = pkgs.linuxPackages_6_12;
   hardware.cpu.amd.updateMicrocode = true;
 
   boot.kernelModules = [ "tcp_bbr" ]; # FIX: Network Congestion Control (Helps with packet jitter)
