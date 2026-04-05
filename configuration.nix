@@ -228,7 +228,7 @@
           version = "1.0";
           
           # CHANGE THIS to the actual path of your custom theme folder
-          src = /etc/nixos/config/programs/plymouth/simple; 
+          src = ./config/programs/plymouth/simple; 
 
           installPhase = ''
             mkdir -p $out/share/plymouth/themes/simple
