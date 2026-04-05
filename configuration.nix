@@ -32,7 +32,7 @@
     (wrapFirefox (pkgs.firefox-unwrapped.override { pipewireSupport = true; }) {})
     telegram-desktop
     kitty
-    libreoffice-qt
+    # libreoffice-qt
     hunspell
     hunspellDicts.ru_RU
     hunspellDicts.en_US
@@ -60,7 +60,7 @@
     qbittorrent
     power-profiles-daemon
     jdk8
-    steam-run
+    # steam-run
   ];
 
   environment.pathsToLink = [ "/share/gsettings-schemas" ];
